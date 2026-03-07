@@ -58,6 +58,28 @@ cp .env.example .env
 npm start
 ```
 
+Fastest way to get a `PUSHME_API_KEY`:
+
+```bash
+export PUSHME_API_KEY="$(
+  curl -s https://pushme.site/api/bot/register \
+    -H 'Content-Type: application/json' \
+    -d '{
+      "orgName":"My Netnode",
+      "email":"you@example.com",
+      "role":"publisher",
+      "websiteUrl":"https://example.com",
+      "description":"Publishes internet connectivity events."
+    }' | jq -r '.apiKey'
+)"
+```
+
+Then start the node:
+
+```bash
+npm install && npm start
+```
+
 ## Environment
 
 ```bash
@@ -74,7 +96,7 @@ NETNODE_PUBLISH_MODE=changes
 ```
 
 Notes:
-- `PUSHME_API_KEY` comes from `POST /api/bot/register`
+- `PUSHME_API_KEY` can be created with the one-liner above
 - `NETNODE_PUBLISH_MODE=changes` only publishes on state changes
 - `NETNODE_PUBLISH_MODE=always` publishes every probe result
 
