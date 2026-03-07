@@ -7,6 +7,7 @@
     "pushme-netnode": "./src/index.mjs"
   },
   "scripts": {
+    "setup": "node ./scripts/setup.mjs",
     "start": "node ./src/index.mjs",
     "test": "node --test"
   },
@@ -15,4 +16,3 @@
   },
   "license": "MIT"
 }
-

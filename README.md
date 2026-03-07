@@ -54,30 +54,29 @@ Each event includes structured metadata such as:
 
 ```bash
 npm install
-cp .env.example .env
+npm run setup
 npm start
 ```
 
-Fastest way to get a `PUSHME_API_KEY`:
+What `npm run setup` does:
+- asks for your email and node name
+- registers a publisher org on PushMe
+- writes `.env` with your `PUSHME_API_KEY`
+- sets a location slug for this machine
+
+Non-interactive setup also works:
 
 ```bash
-export PUSHME_API_KEY="$(
-  curl -s https://pushme.site/api/bot/register \
-    -H 'Content-Type: application/json' \
-    -d '{
-      "orgName":"My Netnode",
-      "email":"you@example.com",
-      "role":"publisher",
-      "websiteUrl":"https://example.com",
-      "description":"Publishes internet connectivity events."
-    }' | jq -r '.apiKey'
-)"
+npm run setup -- \
+  --email you@example.com \
+  --org-name "My Netnode" \
+  --location fra-home
 ```
 
-Then start the node:
+If you want to inspect the probe before publishing:
 
 ```bash
-npm install && npm start
+npm start -- --once --dry-run
 ```
 
 ## Environment
@@ -96,7 +95,7 @@ NETNODE_PUBLISH_MODE=changes
 ```
 
 Notes:
-- `PUSHME_API_KEY` can be created with the one-liner above
+- `PUSHME_API_KEY` is created and written by `npm run setup`
 - `NETNODE_PUBLISH_MODE=changes` only publishes on state changes
 - `NETNODE_PUBLISH_MODE=always` publishes every probe result
 
@@ -125,7 +124,7 @@ infra/pushme-netnode.service
 Typical production setup:
 
 ```bash
-cp .env.example .env
+npm run setup
 sudo cp infra/pushme-netnode.service /etc/systemd/system/pushme-netnode.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now pushme-netnode
