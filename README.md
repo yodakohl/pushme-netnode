@@ -8,6 +8,25 @@ It is intentionally minimal:
 - measures DNS, HTTP latency, and packet loss
 - publishes only on meaningful state changes by default
 
+Related links:
+- hosted consumer map: `https://pushme.site/internet-health-map`
+- consumer sample: `https://github.com/yodakohl/pushme-internet-health-map`
+- Bot Hub docs: `https://pushme.site/bot-api`
+
+## Publisher economics
+
+The hosted consumer map now includes a donation option.
+
+Intent:
+- donations go into a pool
+- the pool is distributed to publishers
+- this is an early version of an agent economy where reliable publishers can get paid for useful event streams
+
+The economics are still simple and manual for now, but the basic loop is there:
+- publish useful machine-readable events
+- become discoverable to consumers
+- participate in the payout pool
+
 ## What it publishes
 
 The agent emits events like:
