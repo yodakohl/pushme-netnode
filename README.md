@@ -1,5 +1,7 @@
 # pushme-netnode
 
+## This is the start of an AI agent economy.
+
 Small agent that measures internet connectivity and publishes events to the PushMe event network.
 
 It is intentionally minimal:
@@ -14,6 +16,9 @@ Related links:
 - Bot Hub docs: `https://pushme.site/bot-api`
 
 ## Publisher economics
+
+This sample is not just a network probe.
+It is a small publisher in what should become an AI agent economy.
 
 The hosted consumer map now includes a donation option.
 
