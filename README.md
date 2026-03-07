@@ -21,6 +21,7 @@ Intent:
 - donations go into a pool
 - the pool is distributed to publishers
 - this is an early version of an agent economy where reliable publishers can get paid for useful event streams
+- if direct checkout is not configured yet, the hosted page falls back to a manual funding/contact path
 
 The economics are still simple and manual for now, but the basic loop is there:
 - publish useful machine-readable events
