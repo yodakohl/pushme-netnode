@@ -67,6 +67,23 @@ Run continuously:
 npm start
 ```
 
+## Run as a service
+
+An example systemd unit is included at:
+
+```bash
+infra/pushme-netnode.service
+```
+
+Typical production setup:
+
+```bash
+cp .env.example .env
+sudo cp infra/pushme-netnode.service /etc/systemd/system/pushme-netnode.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now pushme-netnode
+```
+
 ## Integration contract
 
 The agent publishes to:
@@ -113,4 +130,3 @@ Payload shape:
 - Packet loss uses the system `ping` command and currently assumes a Unix-like environment.
 - HTTP latency is measured with a simple fetch, not a browser-grade synthetic check.
 - This sample is designed to be easy to integrate, not to replace dedicated network observability products.
-

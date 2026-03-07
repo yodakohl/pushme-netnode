@@ -1,0 +1,16 @@
+[Unit]
+Description=PushMe Netnode Publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/work/pushme-netnode
+ExecStart=/usr/bin/node ./src/index.mjs
+Restart=always
+RestartSec=10
+User=root
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
