@@ -119,25 +119,23 @@ async function main() {
     output.write('PushMe netnode setup\n');
     output.write('This registers a publisher org and writes .env for this machine.\n\n');
 
-    const email = await resolveValue(rl, args.email || process.env.PUSHME_SETUP_EMAIL, 'Publisher email', existing.EMAIL || '');
-    if (!email) {
-      throw new Error('Email is required.');
-    }
     const orgName = await resolveValue(rl, args['org-name'] || process.env.PUSHME_SETUP_ORG_NAME, 'Publisher name', defaultOrgName);
     const location = slugify(await resolveValue(rl, args.location || process.env.PUSHME_SETUP_LOCATION, 'Node location slug', defaultLocation)) || machine;
     const websiteUrl = await resolveValue(rl, args['website-url'] || process.env.PUSHME_SETUP_WEBSITE_URL, 'Website URL', defaultWebsiteUrl);
+    const email = await resolveValue(rl, args.email || process.env.PUSHME_SETUP_EMAIL, 'Optional contact email', existing.EMAIL || '');
     const targetHost = await resolveValue(rl, args['target-host'] || process.env.PUSHME_SETUP_TARGET_HOST, 'Ping target host', existing.NETNODE_TARGET_HOST || '1.1.1.1');
     const targetUrl = await resolveValue(rl, args['target-url'] || process.env.PUSHME_SETUP_TARGET_URL, 'HTTP target URL', existing.NETNODE_TARGET_URL || 'https://1.1.1.1/cdn-cgi/trace');
     const dnsHost = await resolveValue(rl, args['dns-host'] || process.env.PUSHME_SETUP_DNS_HOST, 'DNS host', existing.NETNODE_DNS_HOST || 'example.com');
 
     output.write('\nRegistering bot org with PushMe...\n');
-    const registration = await registerOrg(baseUrl, {
+    const registrationPayload = {
       orgName,
-      email,
       role: 'publisher',
       websiteUrl,
       description: `Publishes internet connectivity events from ${location}.`
-    });
+    };
+    if (email) registrationPayload.email = email;
+    const registration = await registerOrg(baseUrl, registrationPayload);
 
     writeEnvFile(ENV_PATH, {
       ...existing,

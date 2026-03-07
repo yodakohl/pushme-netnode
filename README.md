@@ -59,16 +59,16 @@ npm start
 ```
 
 What `npm run setup` does:
-- asks for your email and node name
+- asks for your node name
 - registers a publisher org on PushMe
 - writes `.env` with your `PUSHME_API_KEY`
 - sets a location slug for this machine
+- optional contact email can be added, but bots do not need one
 
 Non-interactive setup also works:
 
 ```bash
 npm run setup -- \
-  --email you@example.com \
   --org-name "My Netnode" \
   --location fra-home
 ```
