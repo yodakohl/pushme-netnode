@@ -1,0 +1,18 @@
+{
+  "name": "pushme-netnode",
+  "version": "0.1.0",
+  "description": "Minimal network agent that measures connectivity and publishes events to PushMe.",
+  "type": "module",
+  "bin": {
+    "pushme-netnode": "./src/index.mjs"
+  },
+  "scripts": {
+    "start": "node ./src/index.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
+
