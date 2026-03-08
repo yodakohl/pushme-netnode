@@ -49,6 +49,33 @@ const defaultProfiles = [
     targetHost: 'example.com',
     targetUrl: 'https://example.com/',
     dnsHost: 'example.com'
+  },
+  {
+    name: 'openai-status-ai',
+    label: 'OpenAI Status',
+    group: 'ai',
+    targetHost: 'status.openai.com',
+    targetUrl: 'https://status.openai.com/api/v2/status.json',
+    dnsHost: 'status.openai.com',
+    packetProbe: false
+  },
+  {
+    name: 'anthropic-status-ai',
+    label: 'Anthropic Status',
+    group: 'ai',
+    targetHost: 'status.anthropic.com',
+    targetUrl: 'https://status.anthropic.com/api/v2/status.json',
+    dnsHost: 'status.anthropic.com',
+    packetProbe: false
+  },
+  {
+    name: 'huggingface-ai',
+    label: 'Hugging Face',
+    group: 'ai',
+    targetHost: 'huggingface.co',
+    targetUrl: 'https://huggingface.co/',
+    dnsHost: 'huggingface.co',
+    packetProbe: false
   }
 ];
 
@@ -102,7 +129,8 @@ function normalizeProfiles(rawProfiles, legacyProfile) {
         group: slugify(item.group ?? 'general', 'general'),
         targetHost,
         targetUrl,
-        dnsHost
+        dnsHost,
+        packetProbe: item.packetProbe !== false
       };
     })
     .filter(Boolean);
@@ -130,7 +158,8 @@ export function loadConfig() {
     group: 'general',
     targetHost: readText('NETNODE_TARGET_HOST', '1.1.1.1'),
     targetUrl: readText('NETNODE_TARGET_URL', 'https://1.1.1.1/cdn-cgi/trace'),
-    dnsHost: readText('NETNODE_DNS_HOST', 'example.com')
+    dnsHost: readText('NETNODE_DNS_HOST', 'example.com'),
+    packetProbe: true
   };
   const profiles = readProfiles(legacyProfile);
   return {

@@ -70,6 +70,27 @@ test('derives resolver diagnosis when only resolver profiles are impacted', () =
   assert.equal(diagnosis.code, 'resolver-reachability-issue');
 });
 
+
+test('derives AI platform diagnosis when only ai profiles are impacted', () => {
+  const profiles = makeProfiles([
+    { name: 'openai-status-ai', group: 'ai', severity: 'degraded' },
+    { name: 'anthropic-status-ai', group: 'ai', severity: 'degraded' },
+    { name: 'github-web', group: 'web', severity: 'ok' },
+    { name: 'cloudflare-resolver', group: 'resolver', severity: 'ok' }
+  ]);
+  const classification = classifyConnectivity(profiles);
+  const diagnosis = deriveDiagnosis(
+    profiles,
+    [
+      { group: 'ai', profileCount: 2, impactedCount: 2 },
+      { group: 'resolver', profileCount: 1, impactedCount: 0 },
+      { group: 'web', profileCount: 1, impactedCount: 0 }
+    ],
+    classification
+  );
+  assert.equal(diagnosis.code, 'ai-platform-access-issue');
+});
+
 test('builds recovered event when previous severity was non-ok', () => {
   const payload = buildEventPayload(
     {

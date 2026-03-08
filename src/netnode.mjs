@@ -142,6 +142,7 @@ export function deriveDiagnosis(profiles, groupStats, classification) {
   const totalGroups = groupStats.length;
   const resolver = groupStats.find((group) => group.group === 'resolver');
   const web = groupStats.find((group) => group.group === 'web');
+  const ai = groupStats.find((group) => group.group === 'ai');
 
   if (classification.impactedCount === 0) {
     return {
@@ -161,11 +162,20 @@ export function deriveDiagnosis(profiles, groupStats, classification) {
     };
   }
 
-  if (web && web.impactedCount === web.profileCount && (!resolver || resolver.impactedCount === 0)) {
+  if (web && web.impactedCount === web.profileCount && (!resolver || resolver.impactedCount === 0) && (!ai || ai.impactedCount === 0)) {
     return {
       code: 'web-egress-issue',
       label: 'web egress issue',
       summary: 'Web destinations are degraded while resolver paths still look healthy.',
+      impactedGroups
+    };
+  }
+
+  if (ai && ai.impactedCount === ai.profileCount && (!resolver || resolver.impactedCount === 0) && (!web || web.impactedCount === 0)) {
+    return {
+      code: 'ai-platform-access-issue',
+      label: 'AI platform access issue',
+      summary: 'AI platform endpoints are degraded while generic resolver and web groups still look healthy.',
       impactedGroups
     };
   }
@@ -305,6 +315,7 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       [`profile_${metadataKey(profile.name)}_targetHost`, profile.targetHost],
       [`profile_${metadataKey(profile.name)}_targetUrl`, profile.targetUrl],
       [`profile_${metadataKey(profile.name)}_dnsHost`, profile.dnsHost],
+      [`profile_${metadataKey(profile.name)}_packetProbeEnabled`, profile.packetProbeEnabled],
       [`profile_${metadataKey(profile.name)}_dnsLatencyMs`, profile.dnsLatencyMs],
       [`profile_${metadataKey(profile.name)}_httpLatencyMs`, profile.httpLatencyMs],
       [`profile_${metadataKey(profile.name)}_packetLossPct`, profile.packetLossPct],
@@ -376,7 +387,7 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       .join('\n'),
     sourceUrl: config.sourceUrl || profiles[0]?.targetUrl || undefined,
     externalId: `${config.location}-${eventType}-${measuredAt}`,
-    tags: Array.from(tags).slice(0, 16),
+    tags: Array.from(tags).slice(0, 12),
     metadata: {
       location: config.location,
       packetCount: config.packetCount,
@@ -406,6 +417,7 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
           targetHost: profile.targetHost,
           targetUrl: profile.targetUrl,
           dnsHost: profile.dnsHost,
+          packetProbeEnabled: profile.packetProbeEnabled,
           dnsLatencyMs: profile.dnsLatencyMs,
           httpLatencyMs: profile.httpLatencyMs,
           packetLossPct: profile.packetLossPct,
@@ -422,10 +434,11 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
 }
 
 async function runProfileProbe(profile, packetCount, measuredAt) {
+  const packetProbeEnabled = profile.packetProbe !== false;
   const [dnsResult, httpResult, packetResult] = await Promise.allSettled([
     measureDnsLatency(profile.dnsHost),
     measureHttpLatency(profile.targetUrl),
-    measurePacketLoss(profile.targetHost, packetCount)
+    packetProbeEnabled ? measurePacketLoss(profile.targetHost, packetCount) : Promise.resolve(null)
   ]);
 
   const metrics = {
@@ -435,15 +448,18 @@ async function runProfileProbe(profile, packetCount, measuredAt) {
     targetHost: profile.targetHost,
     targetUrl: profile.targetUrl,
     dnsHost: profile.dnsHost,
+    packetProbeEnabled,
     measuredAt,
     dnsLatencyMs: dnsResult.status === 'fulfilled' ? dnsResult.value : null,
     httpLatencyMs: httpResult.status === 'fulfilled' ? httpResult.value : null,
-    packetLossPct: packetResult.status === 'fulfilled' ? packetResult.value.packetLossPct : 100,
-    avgPingLatencyMs: packetResult.status === 'fulfilled' ? packetResult.value.avgLatencyMs : null,
+    packetLossPct: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.packetLossPct ?? null : 100) : null,
+    avgPingLatencyMs: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.avgLatencyMs ?? null : null) : null,
     dnsError: dnsResult.status === 'rejected' ? String(dnsResult.reason?.message ?? dnsResult.reason ?? 'DNS probe failed') : null,
     httpError: httpResult.status === 'rejected' ? String(httpResult.reason?.message ?? httpResult.reason ?? 'HTTP probe failed') : null,
     packetError:
-      packetResult.status === 'rejected' ? String(packetResult.reason?.message ?? packetResult.reason ?? 'Ping probe failed') : null
+      packetProbeEnabled && packetResult.status === 'rejected'
+        ? String(packetResult.reason?.message ?? packetResult.reason ?? 'Ping probe failed')
+        : null
   };
 
   const classification = classifyProfileConnectivity(metrics);

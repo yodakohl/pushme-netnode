@@ -108,6 +108,33 @@ function buildDefaultProfiles() {
       targetHost: 'example.com',
       targetUrl: 'https://example.com/',
       dnsHost: 'example.com'
+    },
+    {
+      name: 'openai-status-ai',
+      label: 'OpenAI Status',
+      group: 'ai',
+      targetHost: 'status.openai.com',
+      targetUrl: 'https://status.openai.com/api/v2/status.json',
+      dnsHost: 'status.openai.com',
+      packetProbe: false
+    },
+    {
+      name: 'anthropic-status-ai',
+      label: 'Anthropic Status',
+      group: 'ai',
+      targetHost: 'status.anthropic.com',
+      targetUrl: 'https://status.anthropic.com/api/v2/status.json',
+      dnsHost: 'status.anthropic.com',
+      packetProbe: false
+    },
+    {
+      name: 'huggingface-ai',
+      label: 'Hugging Face',
+      group: 'ai',
+      targetHost: 'huggingface.co',
+      targetUrl: 'https://huggingface.co/',
+      dnsHost: 'huggingface.co',
+      packetProbe: false
     }
   ];
 }
@@ -211,7 +238,7 @@ async function main() {
     output.write('\nSaved .env\n');
     output.write(`org: ${registration.org?.name || orgName}\n`);
     output.write(`location: ${location}\n`);
-    output.write('default probe groups: resolver, web\n');
+    output.write('default probe groups: resolver, web, ai\n');
     output.write('\nNext steps:\n');
     output.write('  npm start -- --once --dry-run\n');
     output.write('  npm start\n');
