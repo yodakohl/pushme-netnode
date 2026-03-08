@@ -48,6 +48,7 @@ function writeEnvFile(filePath, values) {
     `NETNODE_TARGET_HOST=${values.NETNODE_TARGET_HOST ?? '1.1.1.1'}`,
     `NETNODE_TARGET_URL=${values.NETNODE_TARGET_URL ?? 'https://1.1.1.1/cdn-cgi/trace'}`,
     `NETNODE_DNS_HOST=${values.NETNODE_DNS_HOST ?? 'example.com'}`,
+    `NETNODE_PROFILES_JSON=${values.NETNODE_PROFILES_JSON ?? ''}`,
     `NETNODE_LOCATION=${values.NETNODE_LOCATION ?? 'default-node'}`,
     `NETNODE_PACKET_COUNT=${values.NETNODE_PACKET_COUNT ?? '4'}`,
     `NETNODE_INTERVAL_MS=${values.NETNODE_INTERVAL_MS ?? '60000'}`,
@@ -56,6 +57,32 @@ function writeEnvFile(filePath, values) {
     `NETNODE_SOURCE_URL=${values.NETNODE_SOURCE_URL ?? ''}`
   ];
   fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf8');
+}
+
+function buildDefaultProfiles() {
+  return [
+    {
+      name: 'cloudflare',
+      label: 'Cloudflare',
+      targetHost: '1.1.1.1',
+      targetUrl: 'https://1.1.1.1/cdn-cgi/trace',
+      dnsHost: 'one.one.one.one'
+    },
+    {
+      name: 'google',
+      label: 'Google',
+      targetHost: '8.8.8.8',
+      targetUrl: 'https://www.google.com/generate_204',
+      dnsHost: 'google.com'
+    },
+    {
+      name: 'quad9',
+      label: 'Quad9',
+      targetHost: '9.9.9.9',
+      targetUrl: 'https://www.quad9.net/',
+      dnsHost: 'dns.quad9.net'
+    }
+  ];
 }
 
 function slugify(value) {
@@ -123,9 +150,10 @@ async function main() {
     const location = slugify(await resolveValue(rl, args.location || process.env.PUSHME_SETUP_LOCATION, 'Node location slug', defaultLocation)) || machine;
     const websiteUrl = await resolveValue(rl, args['website-url'] || process.env.PUSHME_SETUP_WEBSITE_URL, 'Website URL', defaultWebsiteUrl);
     const email = await resolveValue(rl, args.email || process.env.PUSHME_SETUP_EMAIL, 'Optional contact email', existing.EMAIL || '');
-    const targetHost = await resolveValue(rl, args['target-host'] || process.env.PUSHME_SETUP_TARGET_HOST, 'Ping target host', existing.NETNODE_TARGET_HOST || '1.1.1.1');
-    const targetUrl = await resolveValue(rl, args['target-url'] || process.env.PUSHME_SETUP_TARGET_URL, 'HTTP target URL', existing.NETNODE_TARGET_URL || 'https://1.1.1.1/cdn-cgi/trace');
-    const dnsHost = await resolveValue(rl, args['dns-host'] || process.env.PUSHME_SETUP_DNS_HOST, 'DNS host', existing.NETNODE_DNS_HOST || 'example.com');
+    const targetHost = await resolveValue(rl, args['target-host'] || process.env.PUSHME_SETUP_TARGET_HOST, 'Legacy ping target host', existing.NETNODE_TARGET_HOST || '1.1.1.1');
+    const targetUrl = await resolveValue(rl, args['target-url'] || process.env.PUSHME_SETUP_TARGET_URL, 'Legacy HTTP target URL', existing.NETNODE_TARGET_URL || 'https://1.1.1.1/cdn-cgi/trace');
+    const dnsHost = await resolveValue(rl, args['dns-host'] || process.env.PUSHME_SETUP_DNS_HOST, 'Legacy DNS host', existing.NETNODE_DNS_HOST || 'example.com');
+    const profilesJson = existing.NETNODE_PROFILES_JSON || JSON.stringify(buildDefaultProfiles());
 
     output.write('\nRegistering bot org with PushMe...\n');
     const registrationPayload = {
@@ -144,6 +172,7 @@ async function main() {
       NETNODE_TARGET_HOST: targetHost,
       NETNODE_TARGET_URL: targetUrl,
       NETNODE_DNS_HOST: dnsHost,
+      NETNODE_PROFILES_JSON: profilesJson,
       NETNODE_LOCATION: location,
       NETNODE_PACKET_COUNT: existing.NETNODE_PACKET_COUNT || '4',
       NETNODE_INTERVAL_MS: existing.NETNODE_INTERVAL_MS || '60000',

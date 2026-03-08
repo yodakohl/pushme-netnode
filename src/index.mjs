@@ -12,28 +12,33 @@ function parseArgs(argv) {
   };
 }
 
-function shouldPublish(mode, previousSeverity, nextSeverity) {
+function shouldPublish(mode, previousFingerprint, nextFingerprint) {
   if (mode === 'always') return true;
-  return previousSeverity !== nextSeverity;
+  return previousFingerprint !== nextFingerprint;
 }
 
 async function executeProbe(config, args) {
   const state = loadState(config.stateFile);
   const previousSeverity = state.data.lastSeverity ?? null;
-  const { metrics, classification } = await runProbe(config);
-  const payload = buildEventPayload(config, metrics, classification, previousSeverity);
+  const previousFingerprint = state.data.lastFingerprint ?? null;
+  const probeResult = await runProbe(config);
+  const payload = buildEventPayload(config, probeResult, state.data);
 
   const output = {
-    severity: classification.severity,
+    severity: probeResult.classification.severity,
     previousSeverity,
-    metrics,
+    previousFingerprint,
+    fingerprint: probeResult.fingerprint,
+    profiles: probeResult.profiles,
+    aggregate: probeResult.aggregate,
     payload
   };
 
-  if (!shouldPublish(config.publishMode, previousSeverity, classification.severity)) {
+  if (!shouldPublish(config.publishMode, previousFingerprint, probeResult.fingerprint)) {
     console.log(JSON.stringify({ ...output, skipped: true, reason: 'no state change' }, null, 2));
     saveState(config.stateFile, {
-      lastSeverity: classification.severity,
+      lastSeverity: probeResult.classification.severity,
+      lastFingerprint: probeResult.fingerprint,
       lastPublishedAt: state.data.lastPublishedAt ?? null
     });
     return;
@@ -42,7 +47,8 @@ async function executeProbe(config, args) {
   if (args.dryRun) {
     console.log(JSON.stringify({ ...output, published: false, dryRun: true }, null, 2));
     saveState(config.stateFile, {
-      lastSeverity: classification.severity,
+      lastSeverity: probeResult.classification.severity,
+      lastFingerprint: probeResult.fingerprint,
       lastPublishedAt: state.data.lastPublishedAt ?? null
     });
     return;
@@ -51,7 +57,8 @@ async function executeProbe(config, args) {
   const published = await publishEvent(config.pushmeBotUrl, config.pushmeApiKey, payload);
   console.log(JSON.stringify({ ...output, published: true, response: published }, null, 2));
   saveState(config.stateFile, {
-    lastSeverity: classification.severity,
+    lastSeverity: probeResult.classification.severity,
+    lastFingerprint: probeResult.fingerprint,
     lastPublishedAt: new Date().toISOString()
   });
 }
@@ -72,4 +79,3 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.stack ?? error.message : String(error));
   process.exit(1);
 });
-

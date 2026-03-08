@@ -13,7 +13,7 @@ export async function measureHttpLatency(url) {
     method: 'GET',
     redirect: 'follow',
     headers: {
-      'user-agent': 'pushme-netnode/0.1'
+      'user-agent': 'pushme-netnode/0.2'
     }
   });
   if (!response.ok) {
@@ -62,14 +62,14 @@ export async function measurePacketLoss(host, packetCount) {
   return parsePingOutput(combined, packetCount);
 }
 
-export function classifyConnectivity(metrics) {
+export function classifyProfileConnectivity(metrics) {
   const failures = [];
   if (metrics.dnsError) failures.push('dns');
   if (metrics.httpError) failures.push('http');
   if (metrics.packetError) failures.push('packet');
 
   if (failures.length === 3) {
-    return { severity: 'down', eventType: 'net.connectivity.down', tags: ['network', 'down', 'probe-failure'] };
+    return { severity: 'down', tags: ['network', 'down', 'probe-failure'] };
   }
 
   if (
@@ -77,7 +77,7 @@ export function classifyConnectivity(metrics) {
     (metrics.httpError && metrics.dnsError) ||
     (metrics.packetLossPct >= 30 && metrics.httpLatencyMs != null && metrics.httpLatencyMs >= 4000)
   ) {
-    return { severity: 'down', eventType: 'net.connectivity.down', tags: ['network', 'down', 'packet-loss'] };
+    return { severity: 'down', tags: ['network', 'down', 'packet-loss'] };
   }
 
   if (
@@ -86,85 +86,208 @@ export function classifyConnectivity(metrics) {
     (metrics.httpLatencyMs != null && metrics.httpLatencyMs >= 1200) ||
     failures.length > 0
   ) {
-    return { severity: 'degraded', eventType: 'net.connectivity.degraded', tags: ['network', 'degraded', 'latency'] };
+    return { severity: 'degraded', tags: ['network', 'degraded', 'latency'] };
   }
 
-  return { severity: 'ok', eventType: 'net.connectivity.ok', tags: ['network', 'healthy'] };
+  return { severity: 'ok', tags: ['network', 'healthy'] };
 }
 
-export function buildEventPayload(config, metrics, classification, previousSeverity) {
-  const topic = `${config.location} connectivity`;
-  const changed = previousSeverity && previousSeverity !== classification.severity;
-  const eventType =
-    classification.severity === 'ok' && changed ? 'net.connectivity.recovered' : classification.eventType;
-  const titleSeverity =
-    eventType === 'net.connectivity.recovered'
-      ? 'recovered'
-      : classification.severity;
-  const tags = new Set(classification.tags);
-  if (eventType === 'net.connectivity.recovered') {
-    tags.add('recovered');
+function mean(values) {
+  const usable = values.filter((value) => Number.isFinite(value));
+  if (!usable.length) return null;
+  return Math.round((usable.reduce((sum, value) => sum + value, 0) / usable.length) * 1000) / 1000;
+}
+
+export function classifyConnectivity(profiles) {
+  const profileCount = profiles.length;
+  const downCount = profiles.filter((profile) => profile.severity === 'down').length;
+  const degradedCount = profiles.filter((profile) => profile.severity === 'degraded').length;
+  const impactedCount = downCount + degradedCount;
+  const okCount = profileCount - impactedCount;
+  const scope =
+    impactedCount === 0
+      ? 'healthy'
+      : impactedCount === 1
+        ? 'localized'
+        : impactedCount === profileCount
+          ? 'global'
+          : 'partial';
+
+  if (profileCount > 0 && downCount >= Math.ceil(profileCount / 2)) {
+    return {
+      severity: 'down',
+      eventType: 'net.connectivity.down',
+      tags: ['network', 'down', scope === 'global' ? 'global-outage' : 'multi-target-outage'],
+      scope,
+      profileCount,
+      downCount,
+      degradedCount,
+      okCount,
+      impactedCount
+    };
   }
-  const title = `Connectivity ${titleSeverity} at ${config.location}`;
-  const summaryBits = [];
-  if (metrics.dnsLatencyMs != null) summaryBits.push(`DNS ${metrics.dnsLatencyMs} ms`);
-  if (metrics.httpLatencyMs != null) summaryBits.push(`HTTP ${metrics.httpLatencyMs} ms`);
-  if (metrics.packetLossPct != null) summaryBits.push(`packet loss ${metrics.packetLossPct}%`);
-  if (metrics.dnsError) summaryBits.push(`DNS error: ${metrics.dnsError}`);
-  if (metrics.httpError) summaryBits.push(`HTTP error: ${metrics.httpError}`);
-  if (metrics.packetError) summaryBits.push(`packet probe error: ${metrics.packetError}`);
+
+  if (impactedCount > 0) {
+    return {
+      severity: 'degraded',
+      eventType: 'net.connectivity.degraded',
+      tags: ['network', 'degraded', scope === 'localized' ? 'single-target-issue' : 'multi-target-issue'],
+      scope,
+      profileCount,
+      downCount,
+      degradedCount,
+      okCount,
+      impactedCount
+    };
+  }
+
+  return {
+    severity: 'ok',
+    eventType: 'net.connectivity.ok',
+    tags: ['network', 'healthy', 'multi-target-ok'],
+    scope,
+    profileCount,
+    downCount,
+    degradedCount,
+    okCount,
+    impactedCount
+  };
+}
+
+export function createStatusFingerprint(profiles, classification) {
+  const profilePart = profiles
+    .map((profile) => `${profile.name}:${profile.severity}:${profile.dnsError ? 'dns!' : ''}${profile.httpError ? 'http!' : ''}${profile.packetError ? 'ping!' : ''}`)
+    .sort()
+    .join('|');
+  return `${classification.severity}:${classification.scope}:${classification.impactedCount}/${classification.profileCount}:${profilePart}`;
+}
+
+function summarizeProfiles(profiles) {
+  const impacted = profiles.filter((profile) => profile.severity !== 'ok');
+  if (!impacted.length) {
+    return `All ${profiles.length}/${profiles.length} probe targets healthy`;
+  }
+  return `${impacted.length}/${profiles.length} targets impacted: ${impacted
+    .map((profile) => `${profile.label} ${profile.severity}`)
+    .join(', ')}`;
+}
+
+export function buildEventPayload(config, probeResult, previousState = {}) {
+  const { measuredAt, profiles, classification, aggregate } = probeResult;
+  const previousSeverity = previousState.lastSeverity ?? null;
+  const changed = previousSeverity && previousSeverity !== classification.severity;
+  const eventType = classification.severity === 'ok' && changed ? 'net.connectivity.recovered' : classification.eventType;
+  const titleSeverity = eventType === 'net.connectivity.recovered' ? 'recovered' : classification.severity;
+  const impactedProfiles = profiles.filter((profile) => profile.severity !== 'ok').map((profile) => profile.name);
+  const tags = new Set(classification.tags);
+  if (eventType === 'net.connectivity.recovered') tags.add('recovered');
+  impactedProfiles.forEach((profileName) => tags.add(profileName));
+  tags.add(config.location.toLowerCase().replace(/\s+/g, '-'));
+
+  const summaryParts = [summarizeProfiles(profiles)];
+  if (aggregate.avgDnsLatencyMs != null) summaryParts.push(`avg DNS ${aggregate.avgDnsLatencyMs} ms`);
+  if (aggregate.avgHttpLatencyMs != null) summaryParts.push(`avg HTTP ${aggregate.avgHttpLatencyMs} ms`);
+  if (aggregate.maxPacketLossPct != null) summaryParts.push(`max loss ${aggregate.maxPacketLossPct}%`);
+
+  const flattenedProfileMetadata = Object.fromEntries(
+    profiles.flatMap((profile) => [
+      [`profile_${profile.name}_label`, profile.label],
+      [`profile_${profile.name}_severity`, profile.severity],
+      [`profile_${profile.name}_targetHost`, profile.targetHost],
+      [`profile_${profile.name}_targetUrl`, profile.targetUrl],
+      [`profile_${profile.name}_dnsHost`, profile.dnsHost],
+      [`profile_${profile.name}_dnsLatencyMs`, profile.dnsLatencyMs],
+      [`profile_${profile.name}_httpLatencyMs`, profile.httpLatencyMs],
+      [`profile_${profile.name}_packetLossPct`, profile.packetLossPct],
+      [`profile_${profile.name}_avgPingLatencyMs`, profile.avgPingLatencyMs],
+      [`profile_${profile.name}_dnsError`, profile.dnsError],
+      [`profile_${profile.name}_httpError`, profile.httpError],
+      [`profile_${profile.name}_packetError`, profile.packetError]
+    ])
+  );
 
   return {
     eventType,
-    topic,
-    title,
-    summary: summaryBits.join(', '),
+    topic: `${config.location} connectivity`,
+    title: `Connectivity ${titleSeverity} at ${config.location}`,
+    summary: summaryParts.join(', '),
     body: [
       `Location: ${config.location}`,
-      `Severity: ${classification.severity}`,
-      `Target host: ${config.targetHost}`,
-      `Target URL: ${config.targetUrl}`,
-      `DNS host: ${config.dnsHost}`,
-      metrics.dnsLatencyMs != null ? `DNS latency: ${metrics.dnsLatencyMs} ms` : null,
-      metrics.httpLatencyMs != null ? `HTTP latency: ${metrics.httpLatencyMs} ms` : null,
-      metrics.packetLossPct != null ? `Packet loss: ${metrics.packetLossPct}%` : null,
-      metrics.avgPingLatencyMs != null ? `Average ping latency: ${metrics.avgPingLatencyMs} ms` : null,
-      metrics.dnsError ? `DNS error: ${metrics.dnsError}` : null,
-      metrics.httpError ? `HTTP error: ${metrics.httpError}` : null,
-      metrics.packetError ? `Packet probe error: ${metrics.packetError}` : null,
-      `Measured at: ${metrics.measuredAt}`
+      `Overall severity: ${classification.severity}`,
+      `Scope: ${classification.scope}`,
+      `Impacted targets: ${classification.impactedCount}/${classification.profileCount}`,
+      '',
+      ...profiles.flatMap((profile) => [
+        `Profile: ${profile.label} (${profile.name})`,
+        `- target host: ${profile.targetHost}`,
+        `- target URL: ${profile.targetUrl}`,
+        `- DNS host: ${profile.dnsHost}`,
+        `- severity: ${profile.severity}`,
+        profile.dnsLatencyMs != null ? `- DNS latency: ${profile.dnsLatencyMs} ms` : null,
+        profile.httpLatencyMs != null ? `- HTTP latency: ${profile.httpLatencyMs} ms` : null,
+        profile.packetLossPct != null ? `- Packet loss: ${profile.packetLossPct}%` : null,
+        profile.avgPingLatencyMs != null ? `- Average ping latency: ${profile.avgPingLatencyMs} ms` : null,
+        profile.dnsError ? `- DNS error: ${profile.dnsError}` : null,
+        profile.httpError ? `- HTTP error: ${profile.httpError}` : null,
+        profile.packetError ? `- Packet probe error: ${profile.packetError}` : null,
+        ''
+      ]),
+      `Measured at: ${measuredAt}`
     ]
       .filter(Boolean)
       .join('\n'),
-    sourceUrl: config.sourceUrl || config.targetUrl || undefined,
-    externalId: `${config.location}-${eventType}-${metrics.measuredAt}`,
-    tags: Array.from(new Set([...tags, config.location.toLowerCase().replace(/\s+/g, '-')])).slice(0, 12),
+    sourceUrl: config.sourceUrl || profiles[0]?.targetUrl || undefined,
+    externalId: `${config.location}-${eventType}-${measuredAt}`,
+    tags: Array.from(tags).slice(0, 12),
     metadata: {
       location: config.location,
-      dnsHost: config.dnsHost,
-      targetHost: config.targetHost,
-      targetUrl: config.targetUrl,
-      dnsLatencyMs: metrics.dnsLatencyMs,
-      httpLatencyMs: metrics.httpLatencyMs,
-      packetLossPct: metrics.packetLossPct,
-      avgPingLatencyMs: metrics.avgPingLatencyMs,
       packetCount: config.packetCount,
       severity: classification.severity,
-      previousSeverity: previousSeverity || null,
-      measuredAt: metrics.measuredAt
+      previousSeverity,
+      measuredAt,
+      scope: classification.scope,
+      profileCount: classification.profileCount,
+      impactedProfileCount: classification.impactedCount,
+      impactedProfilesCsv: impactedProfiles.join(','),
+      avgDnsLatencyMs: aggregate.avgDnsLatencyMs,
+      avgHttpLatencyMs: aggregate.avgHttpLatencyMs,
+      avgPingLatencyMs: aggregate.avgPingLatencyMs,
+      maxPacketLossPct: aggregate.maxPacketLossPct,
+      profilesJson: JSON.stringify(
+        profiles.map((profile) => ({
+          name: profile.name,
+          label: profile.label,
+          severity: profile.severity,
+          targetHost: profile.targetHost,
+          targetUrl: profile.targetUrl,
+          dnsHost: profile.dnsHost,
+          dnsLatencyMs: profile.dnsLatencyMs,
+          httpLatencyMs: profile.httpLatencyMs,
+          packetLossPct: profile.packetLossPct,
+          avgPingLatencyMs: profile.avgPingLatencyMs,
+          dnsError: profile.dnsError,
+          httpError: profile.httpError,
+          packetError: profile.packetError
+        }))
+      ),
+      ...flattenedProfileMetadata
     }
   };
 }
 
-export async function runProbe(config) {
-  const measuredAt = new Date().toISOString();
+async function runProfileProbe(profile, packetCount, measuredAt) {
   const [dnsResult, httpResult, packetResult] = await Promise.allSettled([
-    measureDnsLatency(config.dnsHost),
-    measureHttpLatency(config.targetUrl),
-    measurePacketLoss(config.targetHost, config.packetCount)
+    measureDnsLatency(profile.dnsHost),
+    measureHttpLatency(profile.targetUrl),
+    measurePacketLoss(profile.targetHost, packetCount)
   ]);
 
   const metrics = {
+    name: profile.name,
+    label: profile.label,
+    targetHost: profile.targetHost,
+    targetUrl: profile.targetUrl,
+    dnsHost: profile.dnsHost,
     measuredAt,
     dnsLatencyMs: dnsResult.status === 'fulfilled' ? dnsResult.value : null,
     httpLatencyMs: httpResult.status === 'fulfilled' ? httpResult.value : null,
@@ -175,6 +298,32 @@ export async function runProbe(config) {
     packetError:
       packetResult.status === 'rejected' ? String(packetResult.reason?.message ?? packetResult.reason ?? 'Ping probe failed') : null
   };
-  const classification = classifyConnectivity(metrics);
-  return { metrics, classification };
+
+  const classification = classifyProfileConnectivity(metrics);
+  return {
+    ...metrics,
+    severity: classification.severity,
+    tags: classification.tags
+  };
+}
+
+export async function runProbe(config) {
+  const measuredAt = new Date().toISOString();
+  const profiles = await Promise.all(
+    (config.profiles || []).map((profile) => runProfileProbe(profile, config.packetCount, measuredAt))
+  );
+  const classification = classifyConnectivity(profiles);
+  const aggregate = {
+    avgDnsLatencyMs: mean(profiles.map((profile) => profile.dnsLatencyMs)),
+    avgHttpLatencyMs: mean(profiles.map((profile) => profile.httpLatencyMs)),
+    avgPingLatencyMs: mean(profiles.map((profile) => profile.avgPingLatencyMs)),
+    maxPacketLossPct: profiles.reduce((max, profile) => Math.max(max, Number(profile.packetLossPct ?? 0) || 0), 0)
+  };
+  return {
+    measuredAt,
+    profiles,
+    aggregate,
+    classification,
+    fingerprint: createStatusFingerprint(profiles, classification)
+  };
 }

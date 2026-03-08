@@ -7,7 +7,8 @@ Small agent that measures internet connectivity and publishes events to the Push
 It is intentionally minimal:
 - no external npm dependencies
 - runs as a single Node process
-- measures DNS, HTTP latency, and packet loss
+- probes multiple independent destinations
+- measures DNS, HTTP latency, and packet loss per destination
 - publishes only on meaningful state changes by default
 
 Related links:
@@ -42,13 +43,22 @@ The agent emits events like:
 - `net.connectivity.ok`
 
 Each event includes structured metadata such as:
-- target host
-- DNS latency
-- HTTP latency
-- packet loss
-- packet count
-- severity
+- impacted profile count
+- per-destination metrics
+- average DNS / HTTP / ping latency across successful probes
+- maximum packet loss across probes
+- whether the issue looks localized, partial, or global
 - probe timestamp
+
+By default it probes three different destinations:
+- Cloudflare
+- Google
+- Quad9
+
+That makes the output materially more useful than a single ping target:
+- one broken target usually means a localized issue
+- multiple impacted targets suggest a broader uplink or ISP problem
+- downstream agents can react differently based on that distinction
 
 ## Quick start
 
@@ -87,6 +97,7 @@ PUSHME_BOT_URL=https://pushme.site
 NETNODE_TARGET_HOST=1.1.1.1
 NETNODE_TARGET_URL=https://1.1.1.1/cdn-cgi/trace
 NETNODE_DNS_HOST=example.com
+NETNODE_PROFILES_JSON=[{"name":"cloudflare","label":"Cloudflare","targetHost":"1.1.1.1","targetUrl":"https://1.1.1.1/cdn-cgi/trace","dnsHost":"one.one.one.one"},{"name":"google","label":"Google","targetHost":"8.8.8.8","targetUrl":"https://www.google.com/generate_204","dnsHost":"google.com"},{"name":"quad9","label":"Quad9","targetHost":"9.9.9.9","targetUrl":"https://www.quad9.net/","dnsHost":"dns.quad9.net"}]
 NETNODE_LOCATION=home-office
 NETNODE_PACKET_COUNT=4
 NETNODE_INTERVAL_MS=60000
@@ -96,6 +107,7 @@ NETNODE_PUBLISH_MODE=changes
 
 Notes:
 - `PUSHME_API_KEY` is created and written by `npm run setup`
+- `NETNODE_PROFILES_JSON` is the main value-setting knob: each profile adds an independent destination
 - `NETNODE_PUBLISH_MODE=changes` only publishes on state changes
 - `NETNODE_PUBLISH_MODE=always` publishes every probe result
 
@@ -145,20 +157,27 @@ Payload shape:
   "eventType": "net.connectivity.degraded",
   "topic": "home-office connectivity",
   "title": "Connectivity degraded at home-office",
-  "summary": "DNS latency rose to 450 ms and packet loss reached 25%.",
+  "summary": "2/3 targets impacted: Cloudflare degraded, Quad9 down, avg DNS 184 ms, avg HTTP 611 ms, max loss 100%.",
   "body": "Human-readable explanation of the measurement.",
   "sourceUrl": "https://status.example.net",
   "externalId": "home-office-2026-03-07T13:00:00.000Z",
   "tags": ["network", "latency", "packet-loss"],
   "metadata": {
     "location": "home-office",
-    "dnsHost": "example.com",
-    "targetHost": "1.1.1.1",
-    "targetUrl": "https://1.1.1.1/cdn-cgi/trace",
-    "dnsLatencyMs": 32,
-    "httpLatencyMs": 110,
-    "packetLossPct": 25,
-    "severity": "degraded"
+    "severity": "degraded",
+    "scope": "partial",
+    "profileCount": 3,
+    "impactedProfileCount": 2,
+    "impactedProfilesCsv": "cloudflare,quad9",
+    "avgDnsLatencyMs": 184,
+    "avgHttpLatencyMs": 611,
+    "maxPacketLossPct": 100,
+    "profile_cloudflare_severity": "degraded",
+    "profile_cloudflare_targetHost": "1.1.1.1",
+    "profile_cloudflare_dnsLatencyMs": 420,
+    "profile_cloudflare_httpLatencyMs": 503,
+    "profile_cloudflare_packetLossPct": 0,
+    "profilesJson": "[{"name":"cloudflare","severity":"degraded"}]"
   }
 }
 ```
@@ -170,6 +189,8 @@ Payload shape:
 - factory internet path monitoring
 - edge node health reporting
 - ISP outage detection
+- cross-target path validation for autonomous operations agents
+- better evidence for whether an alert is local noise or broader internet degradation
 
 ## Limitations
 
