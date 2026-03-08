@@ -98,6 +98,104 @@ function mean(values) {
   return Math.round((usable.reduce((sum, value) => sum + value, 0) / usable.length) * 1000) / 1000;
 }
 
+function metadataKey(value) {
+  return String(value || 'general').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'general';
+}
+
+function buildGroupStats(profiles) {
+  const groups = new Map();
+  for (const profile of profiles) {
+    const key = profile.group || 'general';
+    const entry = groups.get(key) || {
+      group: key,
+      profileCount: 0,
+      impactedCount: 0,
+      downCount: 0,
+      degradedCount: 0,
+      avgDnsLatencyMs: null,
+      avgHttpLatencyMs: null,
+      avgPingLatencyMs: null,
+      maxPacketLossPct: 0,
+      impactedProfiles: []
+    };
+    entry.profileCount += 1;
+    if (profile.severity !== 'ok') {
+      entry.impactedCount += 1;
+      entry.impactedProfiles.push(profile.name);
+    }
+    if (profile.severity === 'down') entry.downCount += 1;
+    if (profile.severity === 'degraded') entry.degradedCount += 1;
+    entry.maxPacketLossPct = Math.max(entry.maxPacketLossPct, Number(profile.packetLossPct ?? 0) || 0);
+    groups.set(key, entry);
+  }
+  for (const entry of groups.values()) {
+    const matching = profiles.filter((profile) => (profile.group || 'general') === entry.group);
+    entry.avgDnsLatencyMs = mean(matching.map((profile) => profile.dnsLatencyMs));
+    entry.avgHttpLatencyMs = mean(matching.map((profile) => profile.httpLatencyMs));
+    entry.avgPingLatencyMs = mean(matching.map((profile) => profile.avgPingLatencyMs));
+  }
+  return Array.from(groups.values()).sort((a, b) => a.group.localeCompare(b.group));
+}
+
+export function deriveDiagnosis(profiles, groupStats, classification) {
+  const impactedGroups = groupStats.filter((group) => group.impactedCount > 0).map((group) => group.group);
+  const totalGroups = groupStats.length;
+  const resolver = groupStats.find((group) => group.group === 'resolver');
+  const web = groupStats.find((group) => group.group === 'web');
+
+  if (classification.impactedCount === 0) {
+    return {
+      code: 'healthy',
+      label: 'healthy connectivity',
+      summary: 'All configured probe groups are healthy.',
+      impactedGroups
+    };
+  }
+
+  if (resolver && resolver.impactedCount === resolver.profileCount && (!web || web.impactedCount === 0)) {
+    return {
+      code: 'resolver-reachability-issue',
+      label: 'resolver reachability issue',
+      summary: 'DNS resolver paths are degraded while general web destinations still look healthy.',
+      impactedGroups
+    };
+  }
+
+  if (web && web.impactedCount === web.profileCount && (!resolver || resolver.impactedCount === 0)) {
+    return {
+      code: 'web-egress-issue',
+      label: 'web egress issue',
+      summary: 'Web destinations are degraded while resolver paths still look healthy.',
+      impactedGroups
+    };
+  }
+
+  if (impactedGroups.length >= 2 || impactedGroups.length === totalGroups) {
+    return {
+      code: 'broad-connectivity-issue',
+      label: 'broad connectivity issue',
+      summary: 'Multiple probe groups are impacted, suggesting an upstream or wider network issue.',
+      impactedGroups
+    };
+  }
+
+  if (classification.scope === 'localized') {
+    return {
+      code: 'single-destination-anomaly',
+      label: 'single destination anomaly',
+      summary: 'Only one destination is degraded, which usually points to a provider-specific issue rather than local outage.',
+      impactedGroups
+    };
+  }
+
+  return {
+    code: 'mixed-connectivity-issue',
+    label: 'mixed connectivity issue',
+    summary: 'Some destinations are impacted, but the failure pattern does not map cleanly to one probe group.',
+    impactedGroups
+  };
+}
+
 export function classifyConnectivity(profiles) {
   const profileCount = profiles.length;
   const downCount = profiles.filter((profile) => profile.severity === 'down').length;
@@ -154,12 +252,13 @@ export function classifyConnectivity(profiles) {
   };
 }
 
-export function createStatusFingerprint(profiles, classification) {
+export function createStatusFingerprint(profiles, classification, diagnosis = null) {
   const profilePart = profiles
-    .map((profile) => `${profile.name}:${profile.severity}:${profile.dnsError ? 'dns!' : ''}${profile.httpError ? 'http!' : ''}${profile.packetError ? 'ping!' : ''}`)
+    .map((profile) => `${profile.name}:${profile.group || 'general'}:${profile.severity}:${profile.dnsError ? 'dns!' : ''}${profile.httpError ? 'http!' : ''}${profile.packetError ? 'ping!' : ''}`)
     .sort()
     .join('|');
-  return `${classification.severity}:${classification.scope}:${classification.impactedCount}/${classification.profileCount}:${profilePart}`;
+  const diagnosisPart = diagnosis?.code ?? 'unknown';
+  return `${classification.severity}:${classification.scope}:${diagnosisPart}:${classification.impactedCount}/${classification.profileCount}:${profilePart}`;
 }
 
 function summarizeProfiles(profiles) {
@@ -172,8 +271,14 @@ function summarizeProfiles(profiles) {
     .join(', ')}`;
 }
 
+function summarizeGroups(groupStats) {
+  const impacted = groupStats.filter((group) => group.impactedCount > 0);
+  if (!impacted.length) return 'All probe groups healthy';
+  return impacted.map((group) => `${group.group} ${group.impactedCount}/${group.profileCount} impacted`).join(', ');
+}
+
 export function buildEventPayload(config, probeResult, previousState = {}) {
-  const { measuredAt, profiles, classification, aggregate } = probeResult;
+  const { measuredAt, profiles, classification, aggregate, groupStats, diagnosis } = probeResult;
   const previousSeverity = previousState.lastSeverity ?? null;
   const changed = previousSeverity && previousSeverity !== classification.severity;
   const eventType = classification.severity === 'ok' && changed ? 'net.connectivity.recovered' : classification.eventType;
@@ -182,27 +287,45 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
   const tags = new Set(classification.tags);
   if (eventType === 'net.connectivity.recovered') tags.add('recovered');
   impactedProfiles.forEach((profileName) => tags.add(profileName));
+  diagnosis.impactedGroups.forEach((group) => tags.add(`group-${group}`));
   tags.add(config.location.toLowerCase().replace(/\s+/g, '-'));
 
   const summaryParts = [summarizeProfiles(profiles)];
+  summaryParts.push(`diagnosis: ${diagnosis.label}`);
+  summaryParts.push(summarizeGroups(groupStats));
   if (aggregate.avgDnsLatencyMs != null) summaryParts.push(`avg DNS ${aggregate.avgDnsLatencyMs} ms`);
   if (aggregate.avgHttpLatencyMs != null) summaryParts.push(`avg HTTP ${aggregate.avgHttpLatencyMs} ms`);
   if (aggregate.maxPacketLossPct != null) summaryParts.push(`max loss ${aggregate.maxPacketLossPct}%`);
 
   const flattenedProfileMetadata = Object.fromEntries(
     profiles.flatMap((profile) => [
-      [`profile_${profile.name}_label`, profile.label],
-      [`profile_${profile.name}_severity`, profile.severity],
-      [`profile_${profile.name}_targetHost`, profile.targetHost],
-      [`profile_${profile.name}_targetUrl`, profile.targetUrl],
-      [`profile_${profile.name}_dnsHost`, profile.dnsHost],
-      [`profile_${profile.name}_dnsLatencyMs`, profile.dnsLatencyMs],
-      [`profile_${profile.name}_httpLatencyMs`, profile.httpLatencyMs],
-      [`profile_${profile.name}_packetLossPct`, profile.packetLossPct],
-      [`profile_${profile.name}_avgPingLatencyMs`, profile.avgPingLatencyMs],
-      [`profile_${profile.name}_dnsError`, profile.dnsError],
-      [`profile_${profile.name}_httpError`, profile.httpError],
-      [`profile_${profile.name}_packetError`, profile.packetError]
+      [`profile_${metadataKey(profile.name)}_label`, profile.label],
+      [`profile_${metadataKey(profile.name)}_group`, profile.group || 'general'],
+      [`profile_${metadataKey(profile.name)}_severity`, profile.severity],
+      [`profile_${metadataKey(profile.name)}_targetHost`, profile.targetHost],
+      [`profile_${metadataKey(profile.name)}_targetUrl`, profile.targetUrl],
+      [`profile_${metadataKey(profile.name)}_dnsHost`, profile.dnsHost],
+      [`profile_${metadataKey(profile.name)}_dnsLatencyMs`, profile.dnsLatencyMs],
+      [`profile_${metadataKey(profile.name)}_httpLatencyMs`, profile.httpLatencyMs],
+      [`profile_${metadataKey(profile.name)}_packetLossPct`, profile.packetLossPct],
+      [`profile_${metadataKey(profile.name)}_avgPingLatencyMs`, profile.avgPingLatencyMs],
+      [`profile_${metadataKey(profile.name)}_dnsError`, profile.dnsError],
+      [`profile_${metadataKey(profile.name)}_httpError`, profile.httpError],
+      [`profile_${metadataKey(profile.name)}_packetError`, profile.packetError]
+    ])
+  );
+
+  const flattenedGroupMetadata = Object.fromEntries(
+    groupStats.flatMap((group) => [
+      [`group_${metadataKey(group.group)}_profileCount`, group.profileCount],
+      [`group_${metadataKey(group.group)}_impactedCount`, group.impactedCount],
+      [`group_${metadataKey(group.group)}_downCount`, group.downCount],
+      [`group_${metadataKey(group.group)}_degradedCount`, group.degradedCount],
+      [`group_${metadataKey(group.group)}_avgDnsLatencyMs`, group.avgDnsLatencyMs],
+      [`group_${metadataKey(group.group)}_avgHttpLatencyMs`, group.avgHttpLatencyMs],
+      [`group_${metadataKey(group.group)}_avgPingLatencyMs`, group.avgPingLatencyMs],
+      [`group_${metadataKey(group.group)}_maxPacketLossPct`, group.maxPacketLossPct],
+      [`group_${metadataKey(group.group)}_impactedProfilesCsv`, group.impactedProfiles.join(',')]
     ])
   );
 
@@ -215,10 +338,25 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       `Location: ${config.location}`,
       `Overall severity: ${classification.severity}`,
       `Scope: ${classification.scope}`,
+      `Diagnosis: ${diagnosis.label}`,
+      `Diagnosis summary: ${diagnosis.summary}`,
       `Impacted targets: ${classification.impactedCount}/${classification.profileCount}`,
+      `Impacted groups: ${diagnosis.impactedGroups.join(', ') || 'none'}`,
       '',
+      ...groupStats.flatMap((group) => [
+        `Group: ${group.group}`,
+        `- impacted targets: ${group.impactedCount}/${group.profileCount}`,
+        `- degraded targets: ${group.degradedCount}`,
+        `- down targets: ${group.downCount}`,
+        group.avgDnsLatencyMs != null ? `- average DNS latency: ${group.avgDnsLatencyMs} ms` : null,
+        group.avgHttpLatencyMs != null ? `- average HTTP latency: ${group.avgHttpLatencyMs} ms` : null,
+        group.maxPacketLossPct != null ? `- max packet loss: ${group.maxPacketLossPct}%` : null,
+        group.impactedProfiles.length ? `- impacted profiles: ${group.impactedProfiles.join(', ')}` : null,
+        ''
+      ]),
       ...profiles.flatMap((profile) => [
         `Profile: ${profile.label} (${profile.name})`,
+        `- group: ${profile.group || 'general'}`,
         `- target host: ${profile.targetHost}`,
         `- target URL: ${profile.targetUrl}`,
         `- DNS host: ${profile.dnsHost}`,
@@ -238,7 +376,7 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       .join('\n'),
     sourceUrl: config.sourceUrl || profiles[0]?.targetUrl || undefined,
     externalId: `${config.location}-${eventType}-${measuredAt}`,
-    tags: Array.from(tags).slice(0, 12),
+    tags: Array.from(tags).slice(0, 16),
     metadata: {
       location: config.location,
       packetCount: config.packetCount,
@@ -246,6 +384,11 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       previousSeverity,
       measuredAt,
       scope: classification.scope,
+      diagnosisCode: diagnosis.code,
+      diagnosisLabel: diagnosis.label,
+      diagnosisSummary: diagnosis.summary,
+      groupCount: groupStats.length,
+      impactedGroupsCsv: diagnosis.impactedGroups.join(','),
       profileCount: classification.profileCount,
       impactedProfileCount: classification.impactedCount,
       impactedProfilesCsv: impactedProfiles.join(','),
@@ -253,10 +396,12 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       avgHttpLatencyMs: aggregate.avgHttpLatencyMs,
       avgPingLatencyMs: aggregate.avgPingLatencyMs,
       maxPacketLossPct: aggregate.maxPacketLossPct,
+      groupStatsJson: JSON.stringify(groupStats),
       profilesJson: JSON.stringify(
         profiles.map((profile) => ({
           name: profile.name,
           label: profile.label,
+          group: profile.group || 'general',
           severity: profile.severity,
           targetHost: profile.targetHost,
           targetUrl: profile.targetUrl,
@@ -270,6 +415,7 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
           packetError: profile.packetError
         }))
       ),
+      ...flattenedGroupMetadata,
       ...flattenedProfileMetadata
     }
   };
@@ -285,6 +431,7 @@ async function runProfileProbe(profile, packetCount, measuredAt) {
   const metrics = {
     name: profile.name,
     label: profile.label,
+    group: profile.group || 'general',
     targetHost: profile.targetHost,
     targetUrl: profile.targetUrl,
     dnsHost: profile.dnsHost,
@@ -313,6 +460,8 @@ export async function runProbe(config) {
     (config.profiles || []).map((profile) => runProfileProbe(profile, config.packetCount, measuredAt))
   );
   const classification = classifyConnectivity(profiles);
+  const groupStats = buildGroupStats(profiles);
+  const diagnosis = deriveDiagnosis(profiles, groupStats, classification);
   const aggregate = {
     avgDnsLatencyMs: mean(profiles.map((profile) => profile.dnsLatencyMs)),
     avgHttpLatencyMs: mean(profiles.map((profile) => profile.httpLatencyMs)),
@@ -324,6 +473,8 @@ export async function runProbe(config) {
     profiles,
     aggregate,
     classification,
-    fingerprint: createStatusFingerprint(profiles, classification)
+    groupStats,
+    diagnosis,
+    fingerprint: createStatusFingerprint(profiles, classification, diagnosis)
   };
 }

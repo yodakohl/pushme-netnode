@@ -62,25 +62,52 @@ function writeEnvFile(filePath, values) {
 function buildDefaultProfiles() {
   return [
     {
-      name: 'cloudflare',
-      label: 'Cloudflare',
+      name: 'cloudflare-resolver',
+      label: 'Cloudflare Resolver',
+      group: 'resolver',
       targetHost: '1.1.1.1',
       targetUrl: 'https://1.1.1.1/cdn-cgi/trace',
       dnsHost: 'one.one.one.one'
     },
     {
-      name: 'google',
-      label: 'Google',
+      name: 'google-resolver',
+      label: 'Google Resolver',
+      group: 'resolver',
       targetHost: '8.8.8.8',
       targetUrl: 'https://www.google.com/generate_204',
       dnsHost: 'google.com'
     },
     {
-      name: 'quad9',
-      label: 'Quad9',
+      name: 'quad9-resolver',
+      label: 'Quad9 Resolver',
+      group: 'resolver',
       targetHost: '9.9.9.9',
       targetUrl: 'https://www.quad9.net/',
       dnsHost: 'dns.quad9.net'
+    },
+    {
+      name: 'github-web',
+      label: 'GitHub Web',
+      group: 'web',
+      targetHost: 'github.com',
+      targetUrl: 'https://github.com/robots.txt',
+      dnsHost: 'github.com'
+    },
+    {
+      name: 'wikipedia-web',
+      label: 'Wikipedia Web',
+      group: 'web',
+      targetHost: 'wikipedia.org',
+      targetUrl: 'https://www.wikipedia.org/',
+      dnsHost: 'wikipedia.org'
+    },
+    {
+      name: 'example-web',
+      label: 'Example Web',
+      group: 'web',
+      targetHost: 'example.com',
+      targetUrl: 'https://example.com/',
+      dnsHost: 'example.com'
     }
   ];
 }
@@ -184,6 +211,7 @@ async function main() {
     output.write('\nSaved .env\n');
     output.write(`org: ${registration.org?.name || orgName}\n`);
     output.write(`location: ${location}\n`);
+    output.write('default probe groups: resolver, web\n');
     output.write('\nNext steps:\n');
     output.write('  npm start -- --once --dry-run\n');
     output.write('  npm start\n');
