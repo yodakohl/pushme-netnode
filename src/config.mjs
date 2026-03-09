@@ -223,6 +223,17 @@ export function loadConfig() {
     intervalMs: Math.max(5000, Math.trunc(readNumber('NETNODE_INTERVAL_MS', 60000))),
     stateFile: readText('NETNODE_STATE_FILE', './netnode-state.json'),
     publishMode: readText('NETNODE_PUBLISH_MODE', 'changes').toLowerCase(),
-    sourceUrl: readText('NETNODE_SOURCE_URL', '')
+    sourceUrl: readText('NETNODE_SOURCE_URL', ''),
+    nodeIdentity: {
+      countryCode: readText('NETNODE_COUNTRY_CODE', ''),
+      country: readText('NETNODE_COUNTRY', ''),
+      region: readText('NETNODE_REGION', ''),
+      city: readText('NETNODE_CITY', ''),
+      provider: readText('NETNODE_PROVIDER', ''),
+      providerDomain: readText('NETNODE_PROVIDER_DOMAIN', ''),
+      asn: readText('NETNODE_ASN', ''),
+      networkType: readText('NETNODE_NETWORK_TYPE', ''),
+      source: 'configured'
+    }
   };
 }

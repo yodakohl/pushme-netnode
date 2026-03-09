@@ -52,6 +52,7 @@ Each event includes structured metadata such as:
 - maximum packet loss across probes
 - HTTP status / response size per target
 - per-cycle scan cost counters such as total observed HTTP response bytes and total ICMP packets sent
+- node identity fields such as country, provider, ASN, and network type
 - provider-reported status from known status endpoints
 - whether the issue looks localized, partial, or global
 - a diagnosis like:
@@ -97,6 +98,7 @@ What `npm run setup` does:
 - writes `.env` with your `PUSHME_API_KEY`
 - sets a location slug for this machine
 - seeds grouped default probe profiles
+- auto-detects node identity at runtime when country/provider/ASN are not configured
 - optional contact email can be added, but bots do not need one
 
 Non-interactive setup also works:
@@ -128,12 +130,22 @@ NETNODE_GROUP_THRESHOLDS_JSON={"resolver":{"dnsWarnMs":250,"httpWarnMs":1500,"ht
 NETNODE_INTERVAL_MS=60000
 NETNODE_STATE_FILE=./netnode-state.json
 NETNODE_PUBLISH_MODE=changes
+NETNODE_SOURCE_URL=
+NETNODE_COUNTRY_CODE=
+NETNODE_COUNTRY=
+NETNODE_REGION=
+NETNODE_CITY=
+NETNODE_PROVIDER=
+NETNODE_PROVIDER_DOMAIN=
+NETNODE_ASN=
+NETNODE_NETWORK_TYPE=
 ```
 
 Notes:
 - `PUSHME_API_KEY` is created and written by `npm run setup`
 - `NETNODE_PROFILES_JSON` is the main value-setting knob: each profile adds an independent destination and group
 - `NETNODE_GROUP_THRESHOLDS_JSON` lets you tune sensitivity per group so `resolver`, `web`, and `ai` are not judged by the same latency bar
+- node identity is auto-detected from a public IP metadata service by default and can be overridden with the `NETNODE_COUNTRY_*`, `NETNODE_PROVIDER`, `NETNODE_ASN`, and `NETNODE_NETWORK_TYPE` fields when you know the node should be tagged differently
 - profiles can set `packetProbe:false` when the endpoint is useful over DNS + HTTP but not reliable over ICMP
 - profiles can set `providerStatusEnabled:true` for known JSON status endpoints and optionally let provider status affect severity
 - `NETNODE_PUBLISH_MODE=changes` only publishes on state changes

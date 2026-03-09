@@ -54,7 +54,15 @@ function writeEnvFile(filePath, values) {
     `NETNODE_INTERVAL_MS=${values.NETNODE_INTERVAL_MS ?? '60000'}`,
     `NETNODE_STATE_FILE=${values.NETNODE_STATE_FILE ?? './netnode-state.json'}`,
     `NETNODE_PUBLISH_MODE=${values.NETNODE_PUBLISH_MODE ?? 'changes'}`,
-    `NETNODE_SOURCE_URL=${values.NETNODE_SOURCE_URL ?? ''}`
+    `NETNODE_SOURCE_URL=${values.NETNODE_SOURCE_URL ?? ''}`,
+    `NETNODE_COUNTRY_CODE=${values.NETNODE_COUNTRY_CODE ?? ''}`,
+    `NETNODE_COUNTRY=${values.NETNODE_COUNTRY ?? ''}`,
+    `NETNODE_REGION=${values.NETNODE_REGION ?? ''}`,
+    `NETNODE_CITY=${values.NETNODE_CITY ?? ''}`,
+    `NETNODE_PROVIDER=${values.NETNODE_PROVIDER ?? ''}`,
+    `NETNODE_PROVIDER_DOMAIN=${values.NETNODE_PROVIDER_DOMAIN ?? ''}`,
+    `NETNODE_ASN=${values.NETNODE_ASN ?? ''}`,
+    `NETNODE_NETWORK_TYPE=${values.NETNODE_NETWORK_TYPE ?? ''}`
   ];
   fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf8');
 }
@@ -232,7 +240,15 @@ async function main() {
       NETNODE_INTERVAL_MS: existing.NETNODE_INTERVAL_MS || '60000',
       NETNODE_STATE_FILE: existing.NETNODE_STATE_FILE || './netnode-state.json',
       NETNODE_PUBLISH_MODE: existing.NETNODE_PUBLISH_MODE || 'changes',
-      NETNODE_SOURCE_URL: websiteUrl
+      NETNODE_SOURCE_URL: websiteUrl,
+      NETNODE_COUNTRY_CODE: existing.NETNODE_COUNTRY_CODE || '',
+      NETNODE_COUNTRY: existing.NETNODE_COUNTRY || '',
+      NETNODE_REGION: existing.NETNODE_REGION || '',
+      NETNODE_CITY: existing.NETNODE_CITY || '',
+      NETNODE_PROVIDER: existing.NETNODE_PROVIDER || '',
+      NETNODE_PROVIDER_DOMAIN: existing.NETNODE_PROVIDER_DOMAIN || '',
+      NETNODE_ASN: existing.NETNODE_ASN || '',
+      NETNODE_NETWORK_TYPE: existing.NETNODE_NETWORK_TYPE || ''
     });
 
     output.write('\nSaved .env\n');

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { loadConfig } from './config.mjs';
+import { resolveNodeIdentity } from './identity.mjs';
 import { runProbe, buildEventPayload } from './netnode.mjs';
 import { publishEvent } from './pushme.mjs';
 import { loadState, saveState } from './state.mjs';
@@ -65,14 +66,18 @@ async function executeProbe(config, args) {
 
 async function main() {
   const config = loadConfig();
+  const runtimeConfig = {
+    ...config,
+    nodeIdentity: await resolveNodeIdentity(config.nodeIdentity)
+  };
   const args = parseArgs(process.argv);
-  await executeProbe(config, args);
+  await executeProbe(runtimeConfig, args);
   if (args.once) return;
   setInterval(() => {
-    executeProbe(config, args).catch((error) => {
+    executeProbe(runtimeConfig, args).catch((error) => {
       console.error(error instanceof Error ? error.stack ?? error.message : String(error));
     });
-  }, config.intervalMs);
+  }, runtimeConfig.intervalMs);
 }
 
 main().catch((error) => {

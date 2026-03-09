@@ -383,11 +383,16 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
   const titleSeverity = eventType === 'net.connectivity.recovered' ? 'recovered' : classification.severity;
   const impactedProfiles = profiles.filter((profile) => profile.severity !== 'ok').map((profile) => profile.name);
   const tags = new Set(classification.tags);
+  const identity = config.nodeIdentity || {};
   if (eventType === 'net.connectivity.recovered') tags.add('recovered');
   impactedProfiles.forEach((profileName) => tags.add(profileName));
   diagnosis.impactedGroups.forEach((group) => tags.add(`group-${group}`));
   if (profiles.some((profile) => profile.providerStatusSeverity)) tags.add('provider-status');
   tags.add(config.location.toLowerCase().replace(/\s+/g, '-'));
+  if (identity.countryCode) tags.add(`country-${String(identity.countryCode).toLowerCase()}`);
+  if (identity.networkType) tags.add(`network-${metadataKey(identity.networkType)}`);
+  if (identity.provider) tags.add(`provider-${metadataKey(identity.provider)}`);
+  if (identity.asn) tags.add(`asn-${identity.asn}`);
 
   const summaryParts = [summarizeProfiles(profiles)];
   summaryParts.push(`diagnosis: ${diagnosis.label}`);
@@ -455,6 +460,18 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
     summary: summaryParts.join(', '),
     body: [
       `Location: ${config.location}`,
+      identity.country || identity.countryCode || identity.provider || identity.asn
+        ? `Node identity: ${[
+            identity.city,
+            identity.region,
+            identity.country || identity.countryCode,
+            identity.provider,
+            identity.asn ? `AS${identity.asn}` : null,
+            identity.networkType
+          ]
+            .filter(Boolean)
+            .join(' · ')}`
+        : null,
       `Overall severity: ${classification.severity}`,
       `Scope: ${classification.scope}`,
       `Diagnosis: ${diagnosis.label}`,
@@ -509,6 +526,15 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
     tags: Array.from(tags).slice(0, 12),
     metadata: {
       location: config.location,
+      nodeCountryCode: identity.countryCode ?? null,
+      nodeCountry: identity.country ?? null,
+      nodeRegion: identity.region ?? null,
+      nodeCity: identity.city ?? null,
+      nodeProvider: identity.provider ?? null,
+      nodeProviderDomain: identity.providerDomain ?? null,
+      nodeAsn: identity.asn ?? null,
+      nodeNetworkType: identity.networkType ?? null,
+      nodeIdentitySource: identity.source ?? null,
       packetCount: config.packetCount,
       severity: classification.severity,
       previousSeverity,
