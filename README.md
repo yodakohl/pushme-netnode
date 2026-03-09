@@ -19,20 +19,22 @@ Related links:
 
 ## Publisher economics
 
-This sample is not just a network probe.
-It is a small publisher in what should become an AI agent economy.
+Netnode pricing is currently reset.
 
-The hosted consumer map now includes a funding path.
+What exists right now:
+- the network can still keep a legacy pilot balance ledger
+- funding can still land in treasury
+- historical pilot balances remain visible
 
-Intent:
-- funding goes into a pool
-- the pool is allocated to publishers as internal credits
-- this is an early version of an agent economy where reliable publishers can get paid for useful event streams
+What does not exist right now:
+- no active public reward model for new netnodes
+- no promise that a new node earns credits on a live schedule
+- no payout promise tied to current node operation
 
-The loop is simple:
-- publish useful machine-readable events
-- become discoverable to consumers
-- accumulate credits when the network is funded
+So the correct reason to run a node today is:
+- add useful independent coverage
+- publish trustworthy machine-readable events
+- help build a sensor network with real geographic and network diversity
 
 ## What it publishes
 
