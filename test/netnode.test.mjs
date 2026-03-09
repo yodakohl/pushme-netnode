@@ -8,6 +8,7 @@ function makeProfiles(entries) {
     dnsError: null,
     httpError: null,
     packetError: null,
+    providerStatusSeverity: null,
     ...entry
   }));
 }
@@ -62,14 +63,13 @@ test('derives resolver diagnosis when only resolver profiles are impacted', () =
   const diagnosis = deriveDiagnosis(
     profiles,
     [
-      { group: 'resolver', profileCount: 2, impactedCount: 2 },
-      { group: 'web', profileCount: 2, impactedCount: 0 }
+      { group: 'resolver', profileCount: 2, impactedCount: 2, providerReportedCount: 0 },
+      { group: 'web', profileCount: 2, impactedCount: 0, providerReportedCount: 0 }
     ],
     classification
   );
   assert.equal(diagnosis.code, 'resolver-reachability-issue');
 });
-
 
 test('derives AI platform diagnosis when only ai profiles are impacted', () => {
   const profiles = makeProfiles([
@@ -82,16 +82,36 @@ test('derives AI platform diagnosis when only ai profiles are impacted', () => {
   const diagnosis = deriveDiagnosis(
     profiles,
     [
-      { group: 'ai', profileCount: 2, impactedCount: 2 },
-      { group: 'resolver', profileCount: 1, impactedCount: 0 },
-      { group: 'web', profileCount: 1, impactedCount: 0 }
+      { group: 'ai', profileCount: 2, impactedCount: 2, providerReportedCount: 0 },
+      { group: 'resolver', profileCount: 1, impactedCount: 0, providerReportedCount: 0 },
+      { group: 'web', profileCount: 1, impactedCount: 0, providerReportedCount: 0 }
     ],
     classification
   );
   assert.equal(diagnosis.code, 'ai-platform-access-issue');
 });
 
-test('builds recovered event when previous severity was non-ok', () => {
+test('derives provider-reported AI incident when status endpoint says degraded', () => {
+  const profiles = makeProfiles([
+    { name: 'openai-status-ai', group: 'ai', severity: 'degraded', providerStatusSeverity: 'degraded' },
+    { name: 'anthropic-status-ai', group: 'ai', severity: 'ok' },
+    { name: 'github-web', group: 'web', severity: 'ok' },
+    { name: 'cloudflare-resolver', group: 'resolver', severity: 'ok' }
+  ]);
+  const classification = classifyConnectivity(profiles);
+  const diagnosis = deriveDiagnosis(
+    profiles,
+    [
+      { group: 'ai', profileCount: 2, impactedCount: 1, providerReportedCount: 1 },
+      { group: 'resolver', profileCount: 1, impactedCount: 0, providerReportedCount: 0 },
+      { group: 'web', profileCount: 1, impactedCount: 0, providerReportedCount: 0 }
+    ],
+    classification
+  );
+  assert.equal(diagnosis.code, 'ai-platform-incident-reported');
+});
+
+test('builds recovered event with richer latency and provider metadata', () => {
   const payload = buildEventPayload(
     {
       location: 'home-office',
@@ -111,8 +131,17 @@ test('builds recovered event when previous severity was non-ok', () => {
           severity: 'ok',
           dnsLatencyMs: 20,
           httpLatencyMs: 90,
+          httpStatusCode: 200,
+          httpContentType: 'text/plain',
+          httpResponseBytes: 48,
           packetLossPct: 0,
+          packetMinLatencyMs: 10,
           avgPingLatencyMs: 12,
+          packetMaxLatencyMs: 18,
+          packetJitterMs: 2,
+          providerStatusIndicator: null,
+          providerStatusDescription: null,
+          providerStatusSeverity: null,
           dnsError: null,
           httpError: null,
           packetError: null
@@ -127,8 +156,17 @@ test('builds recovered event when previous severity was non-ok', () => {
           severity: 'ok',
           dnsLatencyMs: 18,
           httpLatencyMs: 100,
+          httpStatusCode: 200,
+          httpContentType: 'text/plain',
+          httpResponseBytes: 64,
           packetLossPct: 0,
+          packetMinLatencyMs: 8,
           avgPingLatencyMs: 10,
+          packetMaxLatencyMs: 13,
+          packetJitterMs: 1,
+          providerStatusIndicator: null,
+          providerStatusDescription: null,
+          providerStatusSeverity: null,
           dnsError: null,
           httpError: null,
           packetError: null
@@ -138,11 +176,12 @@ test('builds recovered event when previous severity was non-ok', () => {
         avgDnsLatencyMs: 19,
         avgHttpLatencyMs: 95,
         avgPingLatencyMs: 11,
+        avgJitterMs: 1.5,
         maxPacketLossPct: 0
       },
       groupStats: [
-        { group: 'resolver', profileCount: 1, impactedCount: 0, downCount: 0, degradedCount: 0, avgDnsLatencyMs: 20, avgHttpLatencyMs: 90, avgPingLatencyMs: 12, maxPacketLossPct: 0, impactedProfiles: [] },
-        { group: 'web', profileCount: 1, impactedCount: 0, downCount: 0, degradedCount: 0, avgDnsLatencyMs: 18, avgHttpLatencyMs: 100, avgPingLatencyMs: 10, maxPacketLossPct: 0, impactedProfiles: [] }
+        { group: 'resolver', profileCount: 1, impactedCount: 0, downCount: 0, degradedCount: 0, providerReportedCount: 0, avgDnsLatencyMs: 20, avgHttpLatencyMs: 90, avgPingLatencyMs: 12, avgJitterMs: 2, maxPacketLossPct: 0, maxJitterMs: 2, impactedProfiles: [] },
+        { group: 'web', profileCount: 1, impactedCount: 0, downCount: 0, degradedCount: 0, providerReportedCount: 0, avgDnsLatencyMs: 18, avgHttpLatencyMs: 100, avgPingLatencyMs: 10, avgJitterMs: 1, maxPacketLossPct: 0, maxJitterMs: 1, impactedProfiles: [] }
       ],
       diagnosis: {
         code: 'healthy',
@@ -166,6 +205,10 @@ test('builds recovered event when previous severity was non-ok', () => {
   assert.equal(payload.metadata.previousSeverity, 'degraded');
   assert.equal(payload.metadata.profileCount, 2);
   assert.equal(payload.metadata.profile_cloudflare_resolver_severity, 'ok');
+  assert.equal(payload.metadata.profile_cloudflare_resolver_httpStatusCode, 200);
+  assert.equal(payload.metadata.profile_cloudflare_resolver_packetJitterMs, 2);
+  assert.equal(payload.metadata.group_resolver_avgJitterMs, 2);
+  assert.equal(payload.metadata.avgJitterMs, 1.5);
   assert.equal(payload.metadata.diagnosisCode, 'healthy');
   assert.equal(typeof payload.metadata.groupStatsJson, 'string');
   assert.equal(typeof payload.metadata.profilesJson, 'string');

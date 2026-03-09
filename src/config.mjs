@@ -57,7 +57,9 @@ const defaultProfiles = [
     targetHost: 'status.openai.com',
     targetUrl: 'https://status.openai.com/api/v2/status.json',
     dnsHost: 'status.openai.com',
-    packetProbe: false
+    packetProbe: false,
+    providerStatusEnabled: true,
+    providerStatusAffectsSeverity: true
   },
   {
     name: 'anthropic-status-ai',
@@ -66,7 +68,9 @@ const defaultProfiles = [
     targetHost: 'status.anthropic.com',
     targetUrl: 'https://status.anthropic.com/api/v2/status.json',
     dnsHost: 'status.anthropic.com',
-    packetProbe: false
+    packetProbe: false,
+    providerStatusEnabled: true,
+    providerStatusAffectsSeverity: true
   },
   {
     name: 'huggingface-ai',
@@ -78,6 +82,13 @@ const defaultProfiles = [
     packetProbe: false
   }
 ];
+
+const defaultGroupThresholds = {
+  general: { dnsWarnMs: 250, httpWarnMs: 1200, httpDownMs: 4000, packetWarnPct: 5, packetDownPct: 60 },
+  resolver: { dnsWarnMs: 250, httpWarnMs: 1500, httpDownMs: 4500, packetWarnPct: 5, packetDownPct: 60 },
+  web: { dnsWarnMs: 400, httpWarnMs: 2600, httpDownMs: 5500, packetWarnPct: 5, packetDownPct: 60 },
+  ai: { dnsWarnMs: 300, httpWarnMs: 3000, httpDownMs: 6000, packetWarnPct: 100, packetDownPct: 100 }
+};
 
 function loadDotEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -114,6 +125,40 @@ function slugify(value, fallback = 'probe') {
   return slug || fallback;
 }
 
+function normalizeThresholds(value, fallback = null) {
+  if (!value || typeof value !== 'object') return fallback;
+  const out = {
+    dnsWarnMs: Number(value.dnsWarnMs),
+    httpWarnMs: Number(value.httpWarnMs),
+    httpDownMs: Number(value.httpDownMs),
+    packetWarnPct: Number(value.packetWarnPct),
+    packetDownPct: Number(value.packetDownPct)
+  };
+  return {
+    dnsWarnMs: Number.isFinite(out.dnsWarnMs) ? out.dnsWarnMs : fallback?.dnsWarnMs ?? null,
+    httpWarnMs: Number.isFinite(out.httpWarnMs) ? out.httpWarnMs : fallback?.httpWarnMs ?? null,
+    httpDownMs: Number.isFinite(out.httpDownMs) ? out.httpDownMs : fallback?.httpDownMs ?? null,
+    packetWarnPct: Number.isFinite(out.packetWarnPct) ? out.packetWarnPct : fallback?.packetWarnPct ?? null,
+    packetDownPct: Number.isFinite(out.packetDownPct) ? out.packetDownPct : fallback?.packetDownPct ?? null
+  };
+}
+
+function readGroupThresholds() {
+  const rawJson = readText('NETNODE_GROUP_THRESHOLDS_JSON', '');
+  if (!rawJson) return defaultGroupThresholds;
+  try {
+    const parsed = JSON.parse(rawJson);
+    const next = { ...defaultGroupThresholds };
+    for (const [group, thresholds] of Object.entries(parsed || {})) {
+      const key = slugify(group, 'general');
+      next[key] = normalizeThresholds(thresholds, defaultGroupThresholds[key] ?? defaultGroupThresholds.general);
+    }
+    return next;
+  } catch {
+    return defaultGroupThresholds;
+  }
+}
+
 function normalizeProfiles(rawProfiles, legacyProfile) {
   const source = Array.isArray(rawProfiles) && rawProfiles.length ? rawProfiles : [legacyProfile];
   return source
@@ -130,7 +175,10 @@ function normalizeProfiles(rawProfiles, legacyProfile) {
         targetHost,
         targetUrl,
         dnsHost,
-        packetProbe: item.packetProbe !== false
+        packetProbe: item.packetProbe !== false,
+        providerStatusEnabled: item.providerStatusEnabled === true,
+        providerStatusAffectsSeverity: item.providerStatusAffectsSeverity !== false,
+        thresholds: normalizeThresholds(item.thresholds)
       };
     })
     .filter(Boolean);
@@ -169,6 +217,7 @@ export function loadConfig() {
     targetUrl: profiles[0]?.targetUrl ?? legacyProfile.targetUrl,
     dnsHost: profiles[0]?.dnsHost ?? legacyProfile.dnsHost,
     profiles,
+    groupThresholds: readGroupThresholds(),
     location: readText('NETNODE_LOCATION', 'default-node'),
     packetCount: Math.max(1, Math.min(10, Math.trunc(readNumber('NETNODE_PACKET_COUNT', 4)))),
     intervalMs: Math.max(5000, Math.trunc(readNumber('NETNODE_INTERVAL_MS', 60000))),

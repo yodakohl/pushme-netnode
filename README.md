@@ -48,7 +48,10 @@ Each event includes structured metadata such as:
 - per-destination metrics
 - per-group rollups
 - average DNS / HTTP / ping latency across successful probes
+- average jitter across successful ping probes
 - maximum packet loss across probes
+- HTTP status / response size per target
+- provider-reported status from known status endpoints
 - whether the issue looks localized, partial, or global
 - a diagnosis like:
   - `resolver reachability issue`
@@ -75,6 +78,7 @@ That makes the output materially more useful than a single ping target:
 - one broken destination usually means provider-specific noise
 - resolver-only degradation looks different from general web egress problems
 - AI platform degradation can be detected separately from generic internet reachability
+- AI platform status incidents can be distinguished from pure access-path failures
 - multiple impacted groups suggest a broader uplink or ISP problem
 - downstream agents can route or escalate differently based on that distinction
 
@@ -116,9 +120,10 @@ PUSHME_BOT_URL=https://pushme.site
 NETNODE_TARGET_HOST=1.1.1.1
 NETNODE_TARGET_URL=https://1.1.1.1/cdn-cgi/trace
 NETNODE_DNS_HOST=example.com
-NETNODE_PROFILES_JSON=[{"name":"cloudflare-resolver","label":"Cloudflare Resolver","group":"resolver","targetHost":"1.1.1.1","targetUrl":"https://1.1.1.1/cdn-cgi/trace","dnsHost":"one.one.one.one"},{"name":"google-resolver","label":"Google Resolver","group":"resolver","targetHost":"8.8.8.8","targetUrl":"https://www.google.com/generate_204","dnsHost":"google.com"},{"name":"quad9-resolver","label":"Quad9 Resolver","group":"resolver","targetHost":"9.9.9.9","targetUrl":"https://www.quad9.net/","dnsHost":"dns.quad9.net"},{"name":"github-web","label":"GitHub Web","group":"web","targetHost":"github.com","targetUrl":"https://github.com/robots.txt","dnsHost":"github.com"},{"name":"wikipedia-web","label":"Wikipedia Web","group":"web","targetHost":"wikipedia.org","targetUrl":"https://www.wikipedia.org/","dnsHost":"wikipedia.org"},{"name":"example-web","label":"Example Web","group":"web","targetHost":"example.com","targetUrl":"https://example.com/","dnsHost":"example.com"}]
+NETNODE_PROFILES_JSON=[{"name":"cloudflare-resolver","label":"Cloudflare Resolver","group":"resolver","targetHost":"1.1.1.1","targetUrl":"https://1.1.1.1/cdn-cgi/trace","dnsHost":"one.one.one.one"},{"name":"google-resolver","label":"Google Resolver","group":"resolver","targetHost":"8.8.8.8","targetUrl":"https://www.google.com/generate_204","dnsHost":"google.com"},{"name":"quad9-resolver","label":"Quad9 Resolver","group":"resolver","targetHost":"9.9.9.9","targetUrl":"https://www.quad9.net/","dnsHost":"dns.quad9.net"},{"name":"github-web","label":"GitHub Web","group":"web","targetHost":"github.com","targetUrl":"https://github.com/robots.txt","dnsHost":"github.com"},{"name":"wikipedia-web","label":"Wikipedia Web","group":"web","targetHost":"wikipedia.org","targetUrl":"https://www.wikipedia.org/","dnsHost":"wikipedia.org"},{"name":"example-web","label":"Example Web","group":"web","targetHost":"example.com","targetUrl":"https://example.com/","dnsHost":"example.com"},{"name":"openai-status-ai","label":"OpenAI Status","group":"ai","targetHost":"status.openai.com","targetUrl":"https://status.openai.com/api/v2/status.json","dnsHost":"status.openai.com","packetProbe":false,"providerStatusEnabled":true,"providerStatusAffectsSeverity":true},{"name":"anthropic-status-ai","label":"Anthropic Status","group":"ai","targetHost":"status.anthropic.com","targetUrl":"https://status.anthropic.com/api/v2/status.json","dnsHost":"status.anthropic.com","packetProbe":false,"providerStatusEnabled":true,"providerStatusAffectsSeverity":true}]
 NETNODE_LOCATION=home-office
 NETNODE_PACKET_COUNT=4
+NETNODE_GROUP_THRESHOLDS_JSON={"resolver":{"dnsWarnMs":250,"httpWarnMs":1500,"httpDownMs":4500,"packetWarnPct":5,"packetDownPct":60},"web":{"dnsWarnMs":400,"httpWarnMs":2600,"httpDownMs":5500,"packetWarnPct":5,"packetDownPct":60},"ai":{"dnsWarnMs":300,"httpWarnMs":3000,"httpDownMs":6000,"packetWarnPct":100,"packetDownPct":100}}
 NETNODE_INTERVAL_MS=60000
 NETNODE_STATE_FILE=./netnode-state.json
 NETNODE_PUBLISH_MODE=changes
@@ -127,7 +132,9 @@ NETNODE_PUBLISH_MODE=changes
 Notes:
 - `PUSHME_API_KEY` is created and written by `npm run setup`
 - `NETNODE_PROFILES_JSON` is the main value-setting knob: each profile adds an independent destination and group
+- `NETNODE_GROUP_THRESHOLDS_JSON` lets you tune sensitivity per group so `resolver`, `web`, and `ai` are not judged by the same latency bar
 - profiles can set `packetProbe:false` when the endpoint is useful over DNS + HTTP but not reliable over ICMP
+- profiles can set `providerStatusEnabled:true` for known JSON status endpoints and optionally let provider status affect severity
 - `NETNODE_PUBLISH_MODE=changes` only publishes on state changes
 - `NETNODE_PUBLISH_MODE=always` publishes every probe result
 

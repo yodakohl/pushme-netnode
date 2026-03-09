@@ -7,7 +7,37 @@ export async function measureDnsLatency(hostname) {
   return Date.now() - startedAt;
 }
 
-export async function measureHttpLatency(url) {
+function byteLength(text) {
+  return new TextEncoder().encode(String(text ?? '')).length;
+}
+
+function mapProviderStatusSeverity(indicator) {
+  const normalized = String(indicator ?? '').trim().toLowerCase();
+  if (!normalized || normalized === 'none') return null;
+  if (normalized === 'minor' || normalized === 'maintenance') return 'degraded';
+  if (normalized === 'major' || normalized === 'critical') return 'down';
+  return 'degraded';
+}
+
+function parseProviderStatus(bodyText, contentType) {
+  if (!/json/i.test(String(contentType ?? ''))) return null;
+  try {
+    const payload = JSON.parse(bodyText);
+    const indicator = payload?.status?.indicator ?? payload?.indicator ?? null;
+    const description = payload?.status?.description ?? payload?.description ?? null;
+    const severity = mapProviderStatusSeverity(indicator);
+    if (!indicator && !description) return null;
+    return {
+      indicator: indicator ? String(indicator) : null,
+      description: description ? String(description) : null,
+      severity
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function measureHttpProbe(url, profile = {}) {
   const startedAt = Date.now();
   const response = await fetch(url, {
     method: 'GET',
@@ -16,21 +46,39 @@ export async function measureHttpLatency(url) {
       'user-agent': 'pushme-netnode/0.2'
     }
   });
+  const bodyText = await response.text();
+  const contentType = response.headers.get('content-type') ?? null;
+  const contentLengthHeader = response.headers.get('content-length');
+  const contentLengthBytes = Number.isFinite(Number(contentLengthHeader))
+    ? Number(contentLengthHeader)
+    : byteLength(bodyText);
+  const providerStatus = profile.providerStatusEnabled ? parseProviderStatus(bodyText, contentType) : null;
   if (!response.ok) {
     throw new Error(`HTTP probe failed with ${response.status}`);
   }
-  await response.text();
-  return Date.now() - startedAt;
+  return {
+    latencyMs: Date.now() - startedAt,
+    statusCode: response.status,
+    contentType,
+    contentLengthBytes,
+    providerStatusIndicator: providerStatus?.indicator ?? null,
+    providerStatusDescription: providerStatus?.description ?? null,
+    providerStatusSeverity: providerStatus?.severity ?? null
+  };
 }
 
 function parsePingOutput(output, packetCount) {
   const packetMatch = output.match(/(\d+(?:\.\d+)?)%\s*packet loss/i);
-  const avgMatch =
-    output.match(/=\s*[\d.]+\/([\d.]+)\/[\d.]+\/[\d.]+\s*ms/) ||
-    output.match(/Average = ([\d.]+)ms/i);
+  const linuxRttMatch = output.match(/=\s*([\d.]+)\/([\d.]+)\/([\d.]+)\/([\d.]+)\s*ms/);
+  const windowsAvgMatch = output.match(/Average = ([\d.]+)ms/i);
+  const windowsMinMatch = output.match(/Minimum = ([\d.]+)ms/i);
+  const windowsMaxMatch = output.match(/Maximum = ([\d.]+)ms/i);
   return {
     packetLossPct: packetMatch ? Number(packetMatch[1]) : 100,
-    avgLatencyMs: avgMatch ? Number(avgMatch[1]) : null,
+    minLatencyMs: linuxRttMatch ? Number(linuxRttMatch[1]) : windowsMinMatch ? Number(windowsMinMatch[1]) : null,
+    avgLatencyMs: linuxRttMatch ? Number(linuxRttMatch[2]) : windowsAvgMatch ? Number(windowsAvgMatch[1]) : null,
+    maxLatencyMs: linuxRttMatch ? Number(linuxRttMatch[3]) : windowsMaxMatch ? Number(windowsMaxMatch[1]) : null,
+    jitterMs: linuxRttMatch ? Number(linuxRttMatch[4]) : null,
     packetsSent: packetCount
   };
 }
@@ -62,28 +110,42 @@ export async function measurePacketLoss(host, packetCount) {
   return parsePingOutput(combined, packetCount);
 }
 
-export function classifyProfileConnectivity(metrics) {
+export function classifyProfileConnectivity(metrics, thresholds = {}) {
   const failures = [];
   if (metrics.dnsError) failures.push('dns');
   if (metrics.httpError) failures.push('http');
   if (metrics.packetError) failures.push('packet');
+  if (metrics.providerStatusSeverity) failures.push(`provider-${metrics.providerStatusSeverity}`);
+  const dnsWarnMs = Number.isFinite(Number(thresholds.dnsWarnMs)) ? Number(thresholds.dnsWarnMs) : 250;
+  const httpWarnMs = Number.isFinite(Number(thresholds.httpWarnMs)) ? Number(thresholds.httpWarnMs) : 1200;
+  const httpDownMs = Number.isFinite(Number(thresholds.httpDownMs)) ? Number(thresholds.httpDownMs) : 4000;
+  const packetWarnPct = Number.isFinite(Number(thresholds.packetWarnPct)) ? Number(thresholds.packetWarnPct) : 5;
+  const packetDownPct = Number.isFinite(Number(thresholds.packetDownPct)) ? Number(thresholds.packetDownPct) : 60;
 
   if (failures.length === 3) {
     return { severity: 'down', tags: ['network', 'down', 'probe-failure'] };
   }
 
+  if (metrics.providerStatusAffectsSeverity && metrics.providerStatusSeverity === 'down') {
+    return { severity: 'down', tags: ['network', 'down', 'provider-status'] };
+  }
+
+  if (metrics.providerStatusAffectsSeverity && metrics.providerStatusSeverity === 'degraded') {
+    return { severity: 'degraded', tags: ['network', 'degraded', 'provider-status'] };
+  }
+
   if (
-    metrics.packetLossPct >= 60 ||
+    metrics.packetLossPct >= packetDownPct ||
     (metrics.httpError && metrics.dnsError) ||
-    (metrics.packetLossPct >= 30 && metrics.httpLatencyMs != null && metrics.httpLatencyMs >= 4000)
+    (metrics.packetLossPct >= Math.max(packetWarnPct, 30) && metrics.httpLatencyMs != null && metrics.httpLatencyMs >= httpDownMs)
   ) {
     return { severity: 'down', tags: ['network', 'down', 'packet-loss'] };
   }
 
   if (
-    metrics.packetLossPct >= 5 ||
-    (metrics.dnsLatencyMs != null && metrics.dnsLatencyMs >= 250) ||
-    (metrics.httpLatencyMs != null && metrics.httpLatencyMs >= 1200) ||
+    metrics.packetLossPct >= packetWarnPct ||
+    (metrics.dnsLatencyMs != null && metrics.dnsLatencyMs >= dnsWarnMs) ||
+    (metrics.httpLatencyMs != null && metrics.httpLatencyMs >= httpWarnMs) ||
     failures.length > 0
   ) {
     return { severity: 'degraded', tags: ['network', 'degraded', 'latency'] };
@@ -112,10 +174,13 @@ function buildGroupStats(profiles) {
       impactedCount: 0,
       downCount: 0,
       degradedCount: 0,
+      providerReportedCount: 0,
       avgDnsLatencyMs: null,
       avgHttpLatencyMs: null,
       avgPingLatencyMs: null,
+      avgJitterMs: null,
       maxPacketLossPct: 0,
+      maxJitterMs: 0,
       impactedProfiles: []
     };
     entry.profileCount += 1;
@@ -125,7 +190,9 @@ function buildGroupStats(profiles) {
     }
     if (profile.severity === 'down') entry.downCount += 1;
     if (profile.severity === 'degraded') entry.degradedCount += 1;
+    if (profile.providerStatusSeverity) entry.providerReportedCount += 1;
     entry.maxPacketLossPct = Math.max(entry.maxPacketLossPct, Number(profile.packetLossPct ?? 0) || 0);
+    entry.maxJitterMs = Math.max(entry.maxJitterMs, Number(profile.packetJitterMs ?? 0) || 0);
     groups.set(key, entry);
   }
   for (const entry of groups.values()) {
@@ -133,6 +200,7 @@ function buildGroupStats(profiles) {
     entry.avgDnsLatencyMs = mean(matching.map((profile) => profile.dnsLatencyMs));
     entry.avgHttpLatencyMs = mean(matching.map((profile) => profile.httpLatencyMs));
     entry.avgPingLatencyMs = mean(matching.map((profile) => profile.avgPingLatencyMs));
+    entry.avgJitterMs = mean(matching.map((profile) => profile.packetJitterMs));
   }
   return Array.from(groups.values()).sort((a, b) => a.group.localeCompare(b.group));
 }
@@ -149,6 +217,21 @@ export function deriveDiagnosis(profiles, groupStats, classification) {
       code: 'healthy',
       label: 'healthy connectivity',
       summary: 'All configured probe groups are healthy.',
+      impactedGroups
+    };
+  }
+
+  if (
+    ai &&
+    ai.providerReportedCount > 0 &&
+    ai.impactedCount === ai.providerReportedCount &&
+    (!resolver || resolver.impactedCount === 0) &&
+    (!web || web.impactedCount === 0)
+  ) {
+    return {
+      code: 'ai-platform-incident-reported',
+      label: 'AI platform incident reported',
+      summary: 'AI status endpoints are reachable but currently report platform-side degradation.',
       impactedGroups
     };
   }
@@ -264,7 +347,10 @@ export function classifyConnectivity(profiles) {
 
 export function createStatusFingerprint(profiles, classification, diagnosis = null) {
   const profilePart = profiles
-    .map((profile) => `${profile.name}:${profile.group || 'general'}:${profile.severity}:${profile.dnsError ? 'dns!' : ''}${profile.httpError ? 'http!' : ''}${profile.packetError ? 'ping!' : ''}`)
+    .map(
+      (profile) =>
+        `${profile.name}:${profile.group || 'general'}:${profile.severity}:${profile.providerStatusSeverity || 'none'}:${profile.httpStatusCode || 'na'}:${profile.dnsError ? 'dns!' : ''}${profile.httpError ? 'http!' : ''}${profile.packetError ? 'ping!' : ''}`
+    )
     .sort()
     .join('|');
   const diagnosisPart = diagnosis?.code ?? 'unknown';
@@ -276,15 +362,17 @@ function summarizeProfiles(profiles) {
   if (!impacted.length) {
     return `All ${profiles.length}/${profiles.length} probe targets healthy`;
   }
-  return `${impacted.length}/${profiles.length} targets impacted: ${impacted
-    .map((profile) => `${profile.label} ${profile.severity}`)
-    .join(', ')}`;
+  return `${impacted.length}/${profiles.length} targets impacted: ${impacted.map((profile) => `${profile.label} ${profile.severity}`).join(', ')}`;
 }
 
 function summarizeGroups(groupStats) {
   const impacted = groupStats.filter((group) => group.impactedCount > 0);
   if (!impacted.length) return 'All probe groups healthy';
-  return impacted.map((group) => `${group.group} ${group.impactedCount}/${group.profileCount} impacted`).join(', ');
+  return impacted
+    .map(
+      (group) => `${group.group} ${group.impactedCount}/${group.profileCount} impacted${group.providerReportedCount ? `, provider-reported ${group.providerReportedCount}` : ''}`
+    )
+    .join(', ');
 }
 
 export function buildEventPayload(config, probeResult, previousState = {}) {
@@ -298,6 +386,7 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
   if (eventType === 'net.connectivity.recovered') tags.add('recovered');
   impactedProfiles.forEach((profileName) => tags.add(profileName));
   diagnosis.impactedGroups.forEach((group) => tags.add(`group-${group}`));
+  if (profiles.some((profile) => profile.providerStatusSeverity)) tags.add('provider-status');
   tags.add(config.location.toLowerCase().replace(/\s+/g, '-'));
 
   const summaryParts = [summarizeProfiles(profiles)];
@@ -305,6 +394,7 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
   summaryParts.push(summarizeGroups(groupStats));
   if (aggregate.avgDnsLatencyMs != null) summaryParts.push(`avg DNS ${aggregate.avgDnsLatencyMs} ms`);
   if (aggregate.avgHttpLatencyMs != null) summaryParts.push(`avg HTTP ${aggregate.avgHttpLatencyMs} ms`);
+  if (aggregate.avgJitterMs != null) summaryParts.push(`avg jitter ${aggregate.avgJitterMs} ms`);
   if (aggregate.maxPacketLossPct != null) summaryParts.push(`max loss ${aggregate.maxPacketLossPct}%`);
 
   const flattenedProfileMetadata = Object.fromEntries(
@@ -318,8 +408,20 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       [`profile_${metadataKey(profile.name)}_packetProbeEnabled`, profile.packetProbeEnabled],
       [`profile_${metadataKey(profile.name)}_dnsLatencyMs`, profile.dnsLatencyMs],
       [`profile_${metadataKey(profile.name)}_httpLatencyMs`, profile.httpLatencyMs],
+      [`profile_${metadataKey(profile.name)}_httpStatusCode`, profile.httpStatusCode],
+      [`profile_${metadataKey(profile.name)}_httpContentType`, profile.httpContentType],
+      [`profile_${metadataKey(profile.name)}_httpResponseBytes`, profile.httpResponseBytes],
       [`profile_${metadataKey(profile.name)}_packetLossPct`, profile.packetLossPct],
+      [`profile_${metadataKey(profile.name)}_packetMinLatencyMs`, profile.packetMinLatencyMs],
       [`profile_${metadataKey(profile.name)}_avgPingLatencyMs`, profile.avgPingLatencyMs],
+      [`profile_${metadataKey(profile.name)}_packetMaxLatencyMs`, profile.packetMaxLatencyMs],
+      [`profile_${metadataKey(profile.name)}_packetJitterMs`, profile.packetJitterMs],
+      [`profile_${metadataKey(profile.name)}_providerStatusIndicator`, profile.providerStatusIndicator],
+      [`profile_${metadataKey(profile.name)}_providerStatusDescription`, profile.providerStatusDescription],
+      [`profile_${metadataKey(profile.name)}_providerStatusSeverity`, profile.providerStatusSeverity],
+      [`profile_${metadataKey(profile.name)}_dnsWarnMs`, profile.thresholds?.dnsWarnMs ?? null],
+      [`profile_${metadataKey(profile.name)}_httpWarnMs`, profile.thresholds?.httpWarnMs ?? null],
+      [`profile_${metadataKey(profile.name)}_httpDownMs`, profile.thresholds?.httpDownMs ?? null],
       [`profile_${metadataKey(profile.name)}_dnsError`, profile.dnsError],
       [`profile_${metadataKey(profile.name)}_httpError`, profile.httpError],
       [`profile_${metadataKey(profile.name)}_packetError`, profile.packetError]
@@ -332,10 +434,13 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       [`group_${metadataKey(group.group)}_impactedCount`, group.impactedCount],
       [`group_${metadataKey(group.group)}_downCount`, group.downCount],
       [`group_${metadataKey(group.group)}_degradedCount`, group.degradedCount],
+      [`group_${metadataKey(group.group)}_providerReportedCount`, group.providerReportedCount],
       [`group_${metadataKey(group.group)}_avgDnsLatencyMs`, group.avgDnsLatencyMs],
       [`group_${metadataKey(group.group)}_avgHttpLatencyMs`, group.avgHttpLatencyMs],
       [`group_${metadataKey(group.group)}_avgPingLatencyMs`, group.avgPingLatencyMs],
+      [`group_${metadataKey(group.group)}_avgJitterMs`, group.avgJitterMs],
       [`group_${metadataKey(group.group)}_maxPacketLossPct`, group.maxPacketLossPct],
+      [`group_${metadataKey(group.group)}_maxJitterMs`, group.maxJitterMs],
       [`group_${metadataKey(group.group)}_impactedProfilesCsv`, group.impactedProfiles.join(',')]
     ])
   );
@@ -359,8 +464,10 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
         `- impacted targets: ${group.impactedCount}/${group.profileCount}`,
         `- degraded targets: ${group.degradedCount}`,
         `- down targets: ${group.downCount}`,
+        group.providerReportedCount ? `- provider-reported incidents: ${group.providerReportedCount}` : null,
         group.avgDnsLatencyMs != null ? `- average DNS latency: ${group.avgDnsLatencyMs} ms` : null,
         group.avgHttpLatencyMs != null ? `- average HTTP latency: ${group.avgHttpLatencyMs} ms` : null,
+        group.avgJitterMs != null ? `- average jitter: ${group.avgJitterMs} ms` : null,
         group.maxPacketLossPct != null ? `- max packet loss: ${group.maxPacketLossPct}%` : null,
         group.impactedProfiles.length ? `- impacted profiles: ${group.impactedProfiles.join(', ')}` : null,
         ''
@@ -374,8 +481,13 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
         `- severity: ${profile.severity}`,
         profile.dnsLatencyMs != null ? `- DNS latency: ${profile.dnsLatencyMs} ms` : null,
         profile.httpLatencyMs != null ? `- HTTP latency: ${profile.httpLatencyMs} ms` : null,
+        profile.httpStatusCode != null ? `- HTTP status: ${profile.httpStatusCode}` : null,
         profile.packetLossPct != null ? `- Packet loss: ${profile.packetLossPct}%` : null,
+        profile.packetMinLatencyMs != null ? `- Min ping latency: ${profile.packetMinLatencyMs} ms` : null,
         profile.avgPingLatencyMs != null ? `- Average ping latency: ${profile.avgPingLatencyMs} ms` : null,
+        profile.packetMaxLatencyMs != null ? `- Max ping latency: ${profile.packetMaxLatencyMs} ms` : null,
+        profile.packetJitterMs != null ? `- Ping jitter: ${profile.packetJitterMs} ms` : null,
+        profile.providerStatusIndicator ? `- Provider status: ${profile.providerStatusIndicator}${profile.providerStatusDescription ? ` (${profile.providerStatusDescription})` : ''}` : null,
         profile.dnsError ? `- DNS error: ${profile.dnsError}` : null,
         profile.httpError ? `- HTTP error: ${profile.httpError}` : null,
         profile.packetError ? `- Packet probe error: ${profile.packetError}` : null,
@@ -403,9 +515,11 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       profileCount: classification.profileCount,
       impactedProfileCount: classification.impactedCount,
       impactedProfilesCsv: impactedProfiles.join(','),
+      providerReportedProfileCount: profiles.filter((profile) => profile.providerStatusSeverity).length,
       avgDnsLatencyMs: aggregate.avgDnsLatencyMs,
       avgHttpLatencyMs: aggregate.avgHttpLatencyMs,
       avgPingLatencyMs: aggregate.avgPingLatencyMs,
+      avgJitterMs: aggregate.avgJitterMs,
       maxPacketLossPct: aggregate.maxPacketLossPct,
       groupStatsJson: JSON.stringify(groupStats),
       profilesJson: JSON.stringify(
@@ -420,8 +534,18 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
           packetProbeEnabled: profile.packetProbeEnabled,
           dnsLatencyMs: profile.dnsLatencyMs,
           httpLatencyMs: profile.httpLatencyMs,
+          httpStatusCode: profile.httpStatusCode,
+          httpContentType: profile.httpContentType,
+          httpResponseBytes: profile.httpResponseBytes,
           packetLossPct: profile.packetLossPct,
+          packetMinLatencyMs: profile.packetMinLatencyMs,
           avgPingLatencyMs: profile.avgPingLatencyMs,
+          packetMaxLatencyMs: profile.packetMaxLatencyMs,
+          packetJitterMs: profile.packetJitterMs,
+          providerStatusIndicator: profile.providerStatusIndicator,
+          providerStatusDescription: profile.providerStatusDescription,
+          providerStatusSeverity: profile.providerStatusSeverity,
+          thresholds: profile.thresholds,
           dnsError: profile.dnsError,
           httpError: profile.httpError,
           packetError: profile.packetError
@@ -433,11 +557,11 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
   };
 }
 
-async function runProfileProbe(profile, packetCount, measuredAt) {
+async function runProfileProbe(profile, packetCount, measuredAt, groupThresholds = {}) {
   const packetProbeEnabled = profile.packetProbe !== false;
   const [dnsResult, httpResult, packetResult] = await Promise.allSettled([
     measureDnsLatency(profile.dnsHost),
-    measureHttpLatency(profile.targetUrl),
+    measureHttpProbe(profile.targetUrl, profile),
     packetProbeEnabled ? measurePacketLoss(profile.targetHost, packetCount) : Promise.resolve(null)
   ]);
 
@@ -449,11 +573,22 @@ async function runProfileProbe(profile, packetCount, measuredAt) {
     targetUrl: profile.targetUrl,
     dnsHost: profile.dnsHost,
     packetProbeEnabled,
+    providerStatusAffectsSeverity: profile.providerStatusAffectsSeverity !== false,
+    thresholds: profile.thresholds || groupThresholds[profile.group || 'general'] || groupThresholds.general || null,
     measuredAt,
     dnsLatencyMs: dnsResult.status === 'fulfilled' ? dnsResult.value : null,
-    httpLatencyMs: httpResult.status === 'fulfilled' ? httpResult.value : null,
+    httpLatencyMs: httpResult.status === 'fulfilled' ? httpResult.value?.latencyMs ?? null : null,
+    httpStatusCode: httpResult.status === 'fulfilled' ? httpResult.value?.statusCode ?? null : null,
+    httpContentType: httpResult.status === 'fulfilled' ? httpResult.value?.contentType ?? null : null,
+    httpResponseBytes: httpResult.status === 'fulfilled' ? httpResult.value?.contentLengthBytes ?? null : null,
+    providerStatusIndicator: httpResult.status === 'fulfilled' ? httpResult.value?.providerStatusIndicator ?? null : null,
+    providerStatusDescription: httpResult.status === 'fulfilled' ? httpResult.value?.providerStatusDescription ?? null : null,
+    providerStatusSeverity: httpResult.status === 'fulfilled' ? httpResult.value?.providerStatusSeverity ?? null : null,
     packetLossPct: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.packetLossPct ?? null : 100) : null,
+    packetMinLatencyMs: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.minLatencyMs ?? null : null) : null,
     avgPingLatencyMs: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.avgLatencyMs ?? null : null) : null,
+    packetMaxLatencyMs: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.maxLatencyMs ?? null : null) : null,
+    packetJitterMs: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.jitterMs ?? null : null) : null,
     dnsError: dnsResult.status === 'rejected' ? String(dnsResult.reason?.message ?? dnsResult.reason ?? 'DNS probe failed') : null,
     httpError: httpResult.status === 'rejected' ? String(httpResult.reason?.message ?? httpResult.reason ?? 'HTTP probe failed') : null,
     packetError:
@@ -462,7 +597,7 @@ async function runProfileProbe(profile, packetCount, measuredAt) {
         : null
   };
 
-  const classification = classifyProfileConnectivity(metrics);
+  const classification = classifyProfileConnectivity(metrics, metrics.thresholds);
   return {
     ...metrics,
     severity: classification.severity,
@@ -473,7 +608,7 @@ async function runProfileProbe(profile, packetCount, measuredAt) {
 export async function runProbe(config) {
   const measuredAt = new Date().toISOString();
   const profiles = await Promise.all(
-    (config.profiles || []).map((profile) => runProfileProbe(profile, config.packetCount, measuredAt))
+    (config.profiles || []).map((profile) => runProfileProbe(profile, config.packetCount, measuredAt, config.groupThresholds || {}))
   );
   const classification = classifyConnectivity(profiles);
   const groupStats = buildGroupStats(profiles);
@@ -482,6 +617,7 @@ export async function runProbe(config) {
     avgDnsLatencyMs: mean(profiles.map((profile) => profile.dnsLatencyMs)),
     avgHttpLatencyMs: mean(profiles.map((profile) => profile.httpLatencyMs)),
     avgPingLatencyMs: mean(profiles.map((profile) => profile.avgPingLatencyMs)),
+    avgJitterMs: mean(profiles.map((profile) => profile.packetJitterMs)),
     maxPacketLossPct: profiles.reduce((max, profile) => Math.max(max, Number(profile.packetLossPct ?? 0) || 0), 0)
   };
   return {
