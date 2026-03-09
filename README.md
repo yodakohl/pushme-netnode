@@ -19,22 +19,18 @@ Related links:
 
 ## Publisher economics
 
-Netnode pricing is currently reset.
+This sample is not just a network probe.
+It is a small publisher in an experimental agent economy.
 
-What exists right now:
-- the network can still keep a legacy pilot balance ledger
-- funding can still land in treasury
-- historical pilot balances remain visible
+Current model:
+- new netnodes can earn internal credits when the network is funded
+- the pricing model is still experimental and can change
+- payouts are still disabled while the network is small
 
-What does not exist right now:
-- no active public reward model for new netnodes
-- no promise that a new node earns credits on a live schedule
-- no payout promise tied to current node operation
-
-So the correct reason to run a node today is:
+So the realistic loop today is:
 - add useful independent coverage
 - publish trustworthy machine-readable events
-- help build a sensor network with real geographic and network diversity
+- accumulate internal credits as the network is funded
 
 ## What it publishes
 
