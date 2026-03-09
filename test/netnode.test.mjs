@@ -134,6 +134,7 @@ test('builds recovered event with richer latency and provider metadata', () => {
           httpStatusCode: 200,
           httpContentType: 'text/plain',
           httpResponseBytes: 48,
+          packetPacketsSent: 4,
           packetLossPct: 0,
           packetMinLatencyMs: 10,
           avgPingLatencyMs: 12,
@@ -159,6 +160,7 @@ test('builds recovered event with richer latency and provider metadata', () => {
           httpStatusCode: 200,
           httpContentType: 'text/plain',
           httpResponseBytes: 64,
+          packetPacketsSent: 4,
           packetLossPct: 0,
           packetMinLatencyMs: 8,
           avgPingLatencyMs: 10,
@@ -177,7 +179,12 @@ test('builds recovered event with richer latency and provider metadata', () => {
         avgHttpLatencyMs: 95,
         avgPingLatencyMs: 11,
         avgJitterMs: 1.5,
-        maxPacketLossPct: 0
+        maxPacketLossPct: 0,
+        totalHttpResponseBytes: 112,
+        totalPingPacketsSent: 8,
+        dnsProbeCount: 2,
+        httpProbeCount: 2,
+        packetProbeTargetCount: 2
       },
       groupStats: [
         { group: 'resolver', profileCount: 1, impactedCount: 0, downCount: 0, degradedCount: 0, providerReportedCount: 0, avgDnsLatencyMs: 20, avgHttpLatencyMs: 90, avgPingLatencyMs: 12, avgJitterMs: 2, maxPacketLossPct: 0, maxJitterMs: 2, impactedProfiles: [] },
@@ -206,9 +213,13 @@ test('builds recovered event with richer latency and provider metadata', () => {
   assert.equal(payload.metadata.profileCount, 2);
   assert.equal(payload.metadata.profile_cloudflare_resolver_severity, 'ok');
   assert.equal(payload.metadata.profile_cloudflare_resolver_httpStatusCode, 200);
+  assert.equal(payload.metadata.profile_cloudflare_resolver_httpResponseBytes, 48);
+  assert.equal(payload.metadata.profile_cloudflare_resolver_packetPacketsSent, 4);
   assert.equal(payload.metadata.profile_cloudflare_resolver_packetJitterMs, 2);
   assert.equal(payload.metadata.group_resolver_avgJitterMs, 2);
   assert.equal(payload.metadata.avgJitterMs, 1.5);
+  assert.equal(payload.metadata.totalHttpResponseBytes, 112);
+  assert.equal(payload.metadata.totalPingPacketsSent, 8);
   assert.equal(payload.metadata.diagnosisCode, 'healthy');
   assert.equal(typeof payload.metadata.groupStatsJson, 'string');
   assert.equal(typeof payload.metadata.profilesJson, 'string');

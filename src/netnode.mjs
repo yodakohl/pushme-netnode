@@ -396,6 +396,8 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
   if (aggregate.avgHttpLatencyMs != null) summaryParts.push(`avg HTTP ${aggregate.avgHttpLatencyMs} ms`);
   if (aggregate.avgJitterMs != null) summaryParts.push(`avg jitter ${aggregate.avgJitterMs} ms`);
   if (aggregate.maxPacketLossPct != null) summaryParts.push(`max loss ${aggregate.maxPacketLossPct}%`);
+  if (aggregate.totalHttpResponseBytes != null) summaryParts.push(`HTTP ${aggregate.totalHttpResponseBytes} B`);
+  if (aggregate.totalPingPacketsSent != null) summaryParts.push(`ICMP ${aggregate.totalPingPacketsSent} pkts`);
 
   const flattenedProfileMetadata = Object.fromEntries(
     profiles.flatMap((profile) => [
@@ -411,6 +413,7 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       [`profile_${metadataKey(profile.name)}_httpStatusCode`, profile.httpStatusCode],
       [`profile_${metadataKey(profile.name)}_httpContentType`, profile.httpContentType],
       [`profile_${metadataKey(profile.name)}_httpResponseBytes`, profile.httpResponseBytes],
+      [`profile_${metadataKey(profile.name)}_packetPacketsSent`, profile.packetPacketsSent],
       [`profile_${metadataKey(profile.name)}_packetLossPct`, profile.packetLossPct],
       [`profile_${metadataKey(profile.name)}_packetMinLatencyMs`, profile.packetMinLatencyMs],
       [`profile_${metadataKey(profile.name)}_avgPingLatencyMs`, profile.avgPingLatencyMs],
@@ -458,6 +461,8 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       `Diagnosis summary: ${diagnosis.summary}`,
       `Impacted targets: ${classification.impactedCount}/${classification.profileCount}`,
       `Impacted groups: ${diagnosis.impactedGroups.join(', ') || 'none'}`,
+      `Observed HTTP response bytes: ${aggregate.totalHttpResponseBytes}`,
+      `ICMP packets sent: ${aggregate.totalPingPacketsSent}`,
       '',
       ...groupStats.flatMap((group) => [
         `Group: ${group.group}`,
@@ -482,6 +487,8 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
         profile.dnsLatencyMs != null ? `- DNS latency: ${profile.dnsLatencyMs} ms` : null,
         profile.httpLatencyMs != null ? `- HTTP latency: ${profile.httpLatencyMs} ms` : null,
         profile.httpStatusCode != null ? `- HTTP status: ${profile.httpStatusCode}` : null,
+        profile.httpResponseBytes != null ? `- HTTP response bytes: ${profile.httpResponseBytes}` : null,
+        profile.packetPacketsSent ? `- ICMP packets sent: ${profile.packetPacketsSent}` : null,
         profile.packetLossPct != null ? `- Packet loss: ${profile.packetLossPct}%` : null,
         profile.packetMinLatencyMs != null ? `- Min ping latency: ${profile.packetMinLatencyMs} ms` : null,
         profile.avgPingLatencyMs != null ? `- Average ping latency: ${profile.avgPingLatencyMs} ms` : null,
@@ -521,6 +528,11 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       avgPingLatencyMs: aggregate.avgPingLatencyMs,
       avgJitterMs: aggregate.avgJitterMs,
       maxPacketLossPct: aggregate.maxPacketLossPct,
+      totalHttpResponseBytes: aggregate.totalHttpResponseBytes,
+      totalPingPacketsSent: aggregate.totalPingPacketsSent,
+      dnsProbeCount: aggregate.dnsProbeCount,
+      httpProbeCount: aggregate.httpProbeCount,
+      packetProbeTargetCount: aggregate.packetProbeTargetCount,
       groupStatsJson: JSON.stringify(groupStats),
       profilesJson: JSON.stringify(
         profiles.map((profile) => ({
@@ -537,6 +549,7 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
           httpStatusCode: profile.httpStatusCode,
           httpContentType: profile.httpContentType,
           httpResponseBytes: profile.httpResponseBytes,
+          packetPacketsSent: profile.packetPacketsSent,
           packetLossPct: profile.packetLossPct,
           packetMinLatencyMs: profile.packetMinLatencyMs,
           avgPingLatencyMs: profile.avgPingLatencyMs,
@@ -585,6 +598,7 @@ async function runProfileProbe(profile, packetCount, measuredAt, groupThresholds
     providerStatusDescription: httpResult.status === 'fulfilled' ? httpResult.value?.providerStatusDescription ?? null : null,
     providerStatusSeverity: httpResult.status === 'fulfilled' ? httpResult.value?.providerStatusSeverity ?? null : null,
     packetLossPct: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.packetLossPct ?? null : 100) : null,
+    packetPacketsSent: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.packetsSent ?? packetCount : packetCount) : 0,
     packetMinLatencyMs: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.minLatencyMs ?? null : null) : null,
     avgPingLatencyMs: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.avgLatencyMs ?? null : null) : null,
     packetMaxLatencyMs: packetProbeEnabled ? (packetResult.status === 'fulfilled' ? packetResult.value?.maxLatencyMs ?? null : null) : null,
@@ -618,7 +632,12 @@ export async function runProbe(config) {
     avgHttpLatencyMs: mean(profiles.map((profile) => profile.httpLatencyMs)),
     avgPingLatencyMs: mean(profiles.map((profile) => profile.avgPingLatencyMs)),
     avgJitterMs: mean(profiles.map((profile) => profile.packetJitterMs)),
-    maxPacketLossPct: profiles.reduce((max, profile) => Math.max(max, Number(profile.packetLossPct ?? 0) || 0), 0)
+    maxPacketLossPct: profiles.reduce((max, profile) => Math.max(max, Number(profile.packetLossPct ?? 0) || 0), 0),
+    totalHttpResponseBytes: profiles.reduce((sum, profile) => sum + (Number(profile.httpResponseBytes ?? 0) || 0), 0),
+    totalPingPacketsSent: profiles.reduce((sum, profile) => sum + (Number(profile.packetPacketsSent ?? 0) || 0), 0),
+    dnsProbeCount: profiles.length,
+    httpProbeCount: profiles.length,
+    packetProbeTargetCount: profiles.filter((profile) => profile.packetProbeEnabled).length
   };
   return {
     measuredAt,

@@ -51,6 +51,7 @@ Each event includes structured metadata such as:
 - average jitter across successful ping probes
 - maximum packet loss across probes
 - HTTP status / response size per target
+- per-cycle scan cost counters such as total observed HTTP response bytes and total ICMP packets sent
 - provider-reported status from known status endpoints
 - whether the issue looks localized, partial, or global
 - a diagnosis like:
