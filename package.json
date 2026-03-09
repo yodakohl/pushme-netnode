@@ -8,6 +8,7 @@
   },
   "scripts": {
     "setup": "node ./scripts/setup.mjs",
+    "preview": "node ./scripts/preview-coverage.mjs",
     "start": "node ./src/index.mjs",
     "test": "node --test"
   },

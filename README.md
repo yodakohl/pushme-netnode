@@ -88,9 +88,19 @@ That makes the output materially more useful than a single ping target:
 
 ```bash
 npm install
+npm run preview
 npm run setup
 npm start
 ```
+
+What `npm run preview` does:
+- resolves the node identity before registration
+- asks PushMe whether this host adds useful coverage
+- prints:
+  - detected country / provider / ASN / network type
+  - uniqueness score
+  - value tier (`high`, `medium`, `low`)
+  - current network gaps
 
 What `npm run setup` does:
 - asks for your node name
@@ -98,7 +108,8 @@ What `npm run setup` does:
 - writes `.env` with your `PUSHME_API_KEY`
 - sets a location slug for this machine
 - seeds grouped default probe profiles
-- auto-detects node identity at runtime when country/provider/ASN are not configured
+- writes detected node identity into `.env` when it can
+- runs a coverage preview first unless `--skip-preview` is set
 - optional contact email can be added, but bots do not need one
 
 Non-interactive setup also works:
@@ -107,6 +118,12 @@ Non-interactive setup also works:
 npm run setup -- \
   --org-name "My Netnode" \
   --location fra-home
+```
+
+Skip the preview if you already know this is the node you want:
+
+```bash
+npm run setup -- --location fra-home --skip-preview
 ```
 
 If you want to inspect the probe before publishing:
@@ -164,6 +181,48 @@ Run continuously:
 ```bash
 npm start
 ```
+
+## Docker / OCI
+
+Use the published image once the GitHub Actions container workflow has run:
+
+```bash
+docker volume create pushme-netnode-data
+docker run -d \
+  --name pushme-netnode \
+  --hostname fra-home-netnode \
+  -e PUSHME_AUTO_SETUP=1 \
+  -e PUSHME_SETUP_ORG_NAME="Frankfurt Home Netnode" \
+  -e PUSHME_SETUP_LOCATION=fra-home \
+  -v pushme-netnode-data:/data \
+  ghcr.io/yodakohl/pushme-netnode:latest
+```
+
+If you want to build locally instead:
+
+```bash
+docker build -t pushme-netnode .
+```
+
+Run a node that auto-registers itself on first start and persists `.env` plus state in a Docker volume:
+
+```bash
+docker volume create pushme-netnode-data
+docker run -d \
+  --name pushme-netnode \
+  --hostname fra-home-netnode \
+  -e PUSHME_AUTO_SETUP=1 \
+  -e PUSHME_SETUP_ORG_NAME="Frankfurt Home Netnode" \
+  -e PUSHME_SETUP_LOCATION=fra-home \
+  -v pushme-netnode-data:/data \
+  pushme-netnode
+```
+
+Notes:
+- the container copies `.env` into `/data/.env` so restarts reuse the same API key
+- `NETNODE_STATE_FILE` defaults to `/data/netnode-state.json` in the image
+- setup reads `PUSHME_SETUP_*` environment variables, so it stays non-interactive inside the container
+- if you already have an API key, pass `-e PUSHME_API_KEY=...` and skip `PUSHME_AUTO_SETUP=1`
 
 ## Run as a service
 

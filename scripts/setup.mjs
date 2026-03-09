@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import { resolveNodeIdentity } from '../src/identity.mjs';
+import { previewNetnodeCoverage, registerBotOrg } from '../src/pushme.mjs';
 
 const ENV_PATH = path.resolve(process.cwd(), '.env');
 const EXAMPLE_ENV_PATH = path.resolve(process.cwd(), '.env.example');
@@ -49,6 +51,7 @@ function writeEnvFile(filePath, values) {
     `NETNODE_TARGET_URL=${values.NETNODE_TARGET_URL ?? 'https://1.1.1.1/cdn-cgi/trace'}`,
     `NETNODE_DNS_HOST=${values.NETNODE_DNS_HOST ?? 'example.com'}`,
     `NETNODE_PROFILES_JSON=${values.NETNODE_PROFILES_JSON ?? ''}`,
+    `NETNODE_GROUP_THRESHOLDS_JSON=${values.NETNODE_GROUP_THRESHOLDS_JSON ?? ''}`,
     `NETNODE_LOCATION=${values.NETNODE_LOCATION ?? 'default-node'}`,
     `NETNODE_PACKET_COUNT=${values.NETNODE_PACKET_COUNT ?? '4'}`,
     `NETNODE_INTERVAL_MS=${values.NETNODE_INTERVAL_MS ?? '60000'}`,
@@ -124,7 +127,9 @@ function buildDefaultProfiles() {
       targetHost: 'status.openai.com',
       targetUrl: 'https://status.openai.com/api/v2/status.json',
       dnsHost: 'status.openai.com',
-      packetProbe: false
+      packetProbe: false,
+      providerStatusEnabled: true,
+      providerStatusAffectsSeverity: true
     },
     {
       name: 'anthropic-status-ai',
@@ -133,7 +138,9 @@ function buildDefaultProfiles() {
       targetHost: 'status.anthropic.com',
       targetUrl: 'https://status.anthropic.com/api/v2/status.json',
       dnsHost: 'status.anthropic.com',
-      packetProbe: false
+      packetProbe: false,
+      providerStatusEnabled: true,
+      providerStatusAffectsSeverity: true
     },
     {
       name: 'huggingface-ai',
@@ -145,6 +152,15 @@ function buildDefaultProfiles() {
       packetProbe: false
     }
   ];
+}
+
+function buildDefaultGroupThresholds() {
+  return {
+    general: { dnsWarnMs: 250, httpWarnMs: 1200, httpDownMs: 4000, packetWarnPct: 5, packetDownPct: 60 },
+    resolver: { dnsWarnMs: 250, httpWarnMs: 1500, httpDownMs: 4500, packetWarnPct: 5, packetDownPct: 60 },
+    web: { dnsWarnMs: 400, httpWarnMs: 2600, httpDownMs: 5500, packetWarnPct: 5, packetDownPct: 60 },
+    ai: { dnsWarnMs: 300, httpWarnMs: 3000, httpDownMs: 6000, packetWarnPct: 100, packetDownPct: 100 }
+  };
 }
 
 function slugify(value) {
@@ -168,25 +184,56 @@ async function resolveValue(rl, supplied, label, fallback) {
   return promptValue(rl, label, fallback);
 }
 
-async function registerOrg(baseUrl, payload) {
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/bot/register`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
-  const text = await response.text();
-  let body = {};
-  try {
-    body = text ? JSON.parse(text) : {};
-  } catch {
-    body = { raw: text };
+function coalesce(...values) {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text) return text;
   }
-  if (!response.ok) {
-    throw new Error(`Registration failed (${response.status}): ${JSON.stringify(body)}`);
+  return '';
+}
+
+function cleanInteger(value) {
+  const numeric = Number(value ?? null);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
+}
+
+function buildBaseIdentity(values) {
+  return {
+    countryCode: values.NETNODE_COUNTRY_CODE ?? '',
+    country: values.NETNODE_COUNTRY ?? '',
+    region: values.NETNODE_REGION ?? '',
+    city: values.NETNODE_CITY ?? '',
+    provider: values.NETNODE_PROVIDER ?? '',
+    providerDomain: values.NETNODE_PROVIDER_DOMAIN ?? '',
+    asn: values.NETNODE_ASN ?? '',
+    networkType: values.NETNODE_NETWORK_TYPE ?? '',
+    source: 'configured'
+  };
+}
+
+function formatIdentity(identity) {
+  const parts = [
+    identity.city,
+    identity.region,
+    identity.country || identity.countryCode,
+    identity.provider,
+    identity.asn ? `AS${identity.asn}` : null,
+    identity.networkType
+  ].filter(Boolean);
+  return parts.length ? parts.join(' | ') : 'unknown';
+}
+
+function printCoveragePreview(preview) {
+  output.write('\nCoverage preview\n');
+  output.write(`  value: ${preview.valueTier} (${preview.uniquenessScore}/100)\n`);
+  output.write(`  recommendation: ${preview.recommendation}\n`);
+  output.write(`  reasons: ${preview.reasons.join('; ')}\n`);
+  if (Array.isArray(preview.currentCoverageGaps) && preview.currentCoverageGaps.length) {
+    output.write('  current network gaps:\n');
+    for (const gap of preview.currentCoverageGaps.slice(0, 3)) {
+      output.write(`    - ${gap.title}: ${gap.detail}\n`);
+    }
   }
-  return body;
 }
 
 async function main() {
@@ -202,6 +249,7 @@ async function main() {
   const defaultOrgName = existing.ORG_NAME || `Netnode ${machine}`;
   const defaultWebsiteUrl = existing.NETNODE_SOURCE_URL || 'https://pushme.site/internet-health-map';
   const baseUrl = existing.PUSHME_BOT_URL || 'https://pushme.site';
+  const skipPreview = String(args['skip-preview'] || process.env.PUSHME_SETUP_SKIP_PREVIEW || '').trim().toLowerCase() === 'true';
 
   const rl = readline.createInterface({ input, output });
   try {
@@ -216,6 +264,32 @@ async function main() {
     const targetUrl = await resolveValue(rl, args['target-url'] || process.env.PUSHME_SETUP_TARGET_URL, 'Legacy HTTP target URL', existing.NETNODE_TARGET_URL || 'https://1.1.1.1/cdn-cgi/trace');
     const dnsHost = await resolveValue(rl, args['dns-host'] || process.env.PUSHME_SETUP_DNS_HOST, 'Legacy DNS host', existing.NETNODE_DNS_HOST || 'example.com');
     const profilesJson = existing.NETNODE_PROFILES_JSON || JSON.stringify(buildDefaultProfiles());
+    const groupThresholdsJson = existing.NETNODE_GROUP_THRESHOLDS_JSON || JSON.stringify(buildDefaultGroupThresholds());
+    const baseIdentity = buildBaseIdentity(existing);
+
+    output.write('\nDetecting node identity...\n');
+    const detectedIdentity = await resolveNodeIdentity(baseIdentity);
+    output.write(`detected identity: ${formatIdentity(detectedIdentity)}\n`);
+
+    if (!skipPreview) {
+      try {
+        const preview = await previewNetnodeCoverage(baseUrl, {
+          location,
+          countryCode: coalesce(detectedIdentity.countryCode),
+          country: coalesce(detectedIdentity.country),
+          region: coalesce(detectedIdentity.region),
+          city: coalesce(detectedIdentity.city),
+          provider: coalesce(detectedIdentity.provider),
+          asn: cleanInteger(detectedIdentity.asn),
+          networkType: coalesce(detectedIdentity.networkType)
+        });
+        printCoveragePreview(preview);
+      } catch (error) {
+        output.write(`coverage preview skipped: ${error instanceof Error ? error.message : String(error)}\n`);
+      }
+    } else {
+      output.write('coverage preview skipped\n');
+    }
 
     output.write('\nRegistering bot org with PushMe...\n');
     const registrationPayload = {
@@ -225,7 +299,7 @@ async function main() {
       description: `Publishes internet connectivity events from ${location}.`
     };
     if (email) registrationPayload.email = email;
-    const registration = await registerOrg(baseUrl, registrationPayload);
+    const registration = await registerBotOrg(baseUrl, registrationPayload);
 
     writeEnvFile(ENV_PATH, {
       ...existing,
@@ -235,27 +309,30 @@ async function main() {
       NETNODE_TARGET_URL: targetUrl,
       NETNODE_DNS_HOST: dnsHost,
       NETNODE_PROFILES_JSON: profilesJson,
+      NETNODE_GROUP_THRESHOLDS_JSON: groupThresholdsJson,
       NETNODE_LOCATION: location,
       NETNODE_PACKET_COUNT: existing.NETNODE_PACKET_COUNT || '4',
       NETNODE_INTERVAL_MS: existing.NETNODE_INTERVAL_MS || '60000',
       NETNODE_STATE_FILE: existing.NETNODE_STATE_FILE || './netnode-state.json',
       NETNODE_PUBLISH_MODE: existing.NETNODE_PUBLISH_MODE || 'changes',
       NETNODE_SOURCE_URL: websiteUrl,
-      NETNODE_COUNTRY_CODE: existing.NETNODE_COUNTRY_CODE || '',
-      NETNODE_COUNTRY: existing.NETNODE_COUNTRY || '',
-      NETNODE_REGION: existing.NETNODE_REGION || '',
-      NETNODE_CITY: existing.NETNODE_CITY || '',
-      NETNODE_PROVIDER: existing.NETNODE_PROVIDER || '',
-      NETNODE_PROVIDER_DOMAIN: existing.NETNODE_PROVIDER_DOMAIN || '',
-      NETNODE_ASN: existing.NETNODE_ASN || '',
-      NETNODE_NETWORK_TYPE: existing.NETNODE_NETWORK_TYPE || ''
+      NETNODE_COUNTRY_CODE: detectedIdentity.countryCode || existing.NETNODE_COUNTRY_CODE || '',
+      NETNODE_COUNTRY: detectedIdentity.country || existing.NETNODE_COUNTRY || '',
+      NETNODE_REGION: detectedIdentity.region || existing.NETNODE_REGION || '',
+      NETNODE_CITY: detectedIdentity.city || existing.NETNODE_CITY || '',
+      NETNODE_PROVIDER: detectedIdentity.provider || existing.NETNODE_PROVIDER || '',
+      NETNODE_PROVIDER_DOMAIN: detectedIdentity.providerDomain || existing.NETNODE_PROVIDER_DOMAIN || '',
+      NETNODE_ASN: detectedIdentity.asn || existing.NETNODE_ASN || '',
+      NETNODE_NETWORK_TYPE: detectedIdentity.networkType || existing.NETNODE_NETWORK_TYPE || ''
     });
 
     output.write('\nSaved .env\n');
     output.write(`org: ${registration.org?.name || orgName}\n`);
     output.write(`location: ${location}\n`);
+    output.write(`identity: ${formatIdentity(detectedIdentity)}\n`);
     output.write('default probe groups: resolver, web, ai\n');
     output.write('\nNext steps:\n');
+    output.write('  npm run preview\n');
     output.write('  npm start -- --once --dry-run\n');
     output.write('  npm start\n');
   } finally {
