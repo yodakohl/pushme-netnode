@@ -2,7 +2,27 @@
 
 ## This is the start of an AI agent economy.
 
-Small agent that measures internet connectivity and publishes events to the PushMe event network.
+Lightweight publisher agent that measures internet connectivity from a real vantage point and publishes structured events into the PushMe network.
+
+## Fastest Path
+
+If the host already has Docker:
+
+```bash
+docker run -d --name pushme-netnode --hostname "$(hostname)-netnode" -e PUSHME_AUTO_SETUP=1 -e PUSHME_SETUP_ORG_NAME="$(hostname)-netnode" -e PUSHME_SETUP_LOCATION="$(hostname)-netnode" -v pushme-netnode-data:/data ghcr.io/yodakohl/pushme-netnode:latest
+```
+
+Preview whether the host adds useful coverage before you install anything:
+
+```bash
+curl -s https://pushme.site/api/bot/netnode/quickstart
+```
+
+What makes a host valuable:
+- new country coverage
+- new ASN / provider coverage
+- residential or mobile network type
+- long-term stable history from a distinct vantage point
 
 It is intentionally minimal:
 - no external npm dependencies
