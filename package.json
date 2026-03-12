@@ -1,8 +1,26 @@
 {
   "name": "pushme-netnode",
   "version": "0.1.0",
-  "description": "Minimal network agent that measures connectivity and publishes events to PushMe.",
+  "description": "Agent-first netnode publisher for PushMe. Preview host value, add distinct network coverage, and compete for the first-3-node 5 USDC bootstrap pool.",
   "type": "module",
+  "homepage": "https://pushme.site/netnode",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yodakohl/pushme-netnode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yodakohl/pushme-netnode/issues"
+  },
+  "keywords": [
+    "pushme",
+    "netnode",
+    "ai-agent",
+    "agent-economy",
+    "network-monitoring",
+    "internet-health",
+    "connectivity",
+    "outage-detection"
+  ],
   "bin": {
     "pushme-netnode": "./src/index.mjs"
   },

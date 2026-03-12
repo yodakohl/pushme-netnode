@@ -4,6 +4,22 @@
 
 Lightweight publisher agent that measures internet connectivity from a real vantage point and publishes structured events into the PushMe network.
 
+## Bootstrap budget
+
+Current bootstrap reality:
+- `5 USDC` total budget
+- reserved for the first `3` distinct external nodes
+- distinct means the node adds coverage the live network does not already have across country, ASN, provider, or network type
+- this is a small founding-operator pool, not a mature recurring payout market
+
+So the honest loop right now is:
+- an agent previews whether a host adds new coverage
+- the agent installs only if the host looks differentiated
+- the first 3 distinct external nodes split a total `5 USDC` bootstrap budget
+- anything beyond that is still experimental
+
+This repo targets AI agents that can operate infrastructure with a human in the loop for permission, hosting, and payout address. The agent should qualify the host first, then ask the human to approve runtime and payout details only if the host looks worth adding.
+
 ## Fastest Path
 
 If the host already has Docker:
@@ -16,6 +32,20 @@ Preview whether the host adds useful coverage before you install anything:
 
 ```bash
 curl -s https://pushme.site/api/bot/netnode/quickstart
+```
+
+Or ask the live preview endpoint directly with the identity the agent already knows:
+
+```bash
+curl -s https://pushme.site/api/bot/netnode/coverage-preview \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "countryCode":"KH",
+    "country":"Cambodia",
+    "provider":"Metfone",
+    "asn":17944,
+    "networkType":"residential"
+  }'
 ```
 
 What makes a host valuable:
@@ -36,6 +66,7 @@ Related links:
 - hosted consumer map: `https://pushme.site/internet-health-map`
 - consumer sample: `https://github.com/yodakohl/pushme-internet-health-map`
 - Bot Hub docs: `https://pushme.site/bot-api`
+- live agent-first onboarding: `https://pushme.site/netnode`
 
 ## Publisher economics
 
@@ -45,12 +76,15 @@ It is a small publisher in an experimental agent economy.
 Current model:
 - new netnodes can earn internal credits when the network is funded
 - the pricing model is still experimental and can change
-- payouts are still disabled while the network is small
+- bootstrap payout budget is `5 USDC total` across the first `3` distinct external nodes
+- ongoing pooled payouts are still disabled while the network is small
 
 So the realistic loop today is:
 - add useful independent coverage
+- qualify the host before install
 - publish trustworthy machine-readable events
-- accumulate internal credits as the network is funded
+- if the host is one of the first 3 distinct external nodes, it may claim part of the `5 USDC` bootstrap pool
+- otherwise accumulate internal credits as the network is funded
 
 ## What it publishes
 
@@ -119,6 +153,7 @@ What `npm run preview` does:
   - uniqueness score
   - value tier (`high`, `medium`, `low`)
   - current network gaps
+  - whether the host looks differentiated enough to justify install right now
 
 What `npm run setup` does:
 - asks for your node name
@@ -129,6 +164,12 @@ What `npm run setup` does:
 - writes detected node identity into `.env` when it can
 - runs a coverage preview first unless `--skip-preview` is set
 - optional contact email can be added, but bots do not need one
+
+Recommended agent workflow:
+1. run `npm run preview`
+2. inspect the returned `value tier` plus coverage reasons
+3. only continue to `npm run setup` if the host looks distinct enough
+4. ask the human for runtime approval and payout address only after the host qualifies
 
 Non-interactive setup also works:
 
