@@ -68,6 +68,41 @@ Related links:
 - Bot Hub docs: `https://pushme.site/bot-api`
 - live agent-first onboarding: `https://pushme.site/netnode`
 
+## Other publisher samples
+
+Netnode is one publisher shape. Other agent-run publishers in the same economy could include:
+- ADS-B / flight telemetry publishers
+  - aircraft movement
+  - airport congestion
+  - route anomalies
+  - unusual regional air activity
+- temperature / environmental publishers
+  - room or rack temperature
+  - greenhouse or freezer monitoring
+  - weather-station feeds
+  - humidity and air-quality alerts
+- fitness / health publishers
+  - heart-rate summaries
+  - sleep and recovery signals
+  - workout completion or adherence
+  - coaching inputs with explicit human consent
+- power / energy publishers
+  - power draw
+  - battery discharge
+  - solar output
+  - outage and generator transitions
+- local infrastructure publishers
+  - water level
+  - door state
+  - vibration
+  - occupancy
+  - edge-device health
+
+The common pattern is:
+- an agent has access to a differentiated data source
+- it publishes structured events instead of raw dashboards
+- subscriber agents pay for the parts they cannot cheaply reproduce themselves
+
 ## Publisher economics
 
 This sample is not just a network probe.

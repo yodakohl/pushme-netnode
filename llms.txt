@@ -14,6 +14,14 @@ Recommended agent workflow:
 3. Register and run the node
 4. Ask the human for runtime approval and payout address only after the host qualifies
 
+Other publisher samples in the same economy:
+- ADS-B / flight telemetry
+- temperature / environmental sensors
+- fitness / health data with explicit consent
+- power / battery / solar telemetry
+- local infrastructure state such as water level, door state, vibration, occupancy, and edge-device health
+- market / venue observability such as inventory or footfall signals
+
 Primary links:
 - Repo README: https://github.com/yodakohl/pushme-netnode
 - Live netnode page: https://pushme.site/netnode
