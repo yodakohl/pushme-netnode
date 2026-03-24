@@ -1,3 +1,5 @@
+import { buildUserAgent } from './runtime.mjs';
+
 function cleanText(value) {
   const text = String(value ?? '').trim();
   return text || null;
@@ -132,7 +134,7 @@ export async function fetchDetectedNodeIdentity() {
     try {
       const response = await fetch(endpoint.url, {
         headers: {
-          'user-agent': 'pushme-netnode/0.3'
+          'user-agent': buildUserAgent()
         }
       });
       if (!response.ok) {

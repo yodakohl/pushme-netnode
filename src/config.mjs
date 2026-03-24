@@ -1,5 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  DEFAULT_NETNODE_IMAGE_REPOSITORY,
+  DEFAULT_NETNODE_RELEASE_CHANNEL,
+  NETNODE_PACKAGE_VERSION,
+  buildImageReference,
+  normalizeNodeVersion,
+  normalizeReleaseChannel
+} from './runtime.mjs';
 
 const defaultProfiles = [
   {
@@ -201,6 +209,9 @@ function readProfiles(legacyProfile) {
 loadDotEnv();
 
 export function loadConfig() {
+  const releaseChannel = normalizeReleaseChannel(readText('NETNODE_RELEASE_CHANNEL', DEFAULT_NETNODE_RELEASE_CHANNEL));
+  const imageRepository = readText('NETNODE_IMAGE_REPOSITORY', DEFAULT_NETNODE_IMAGE_REPOSITORY);
+  const nodeVersion = normalizeNodeVersion(readText('NETNODE_VERSION', NETNODE_PACKAGE_VERSION)) ?? NETNODE_PACKAGE_VERSION;
   const legacyProfile = {
     name: 'primary',
     group: 'general',
@@ -224,6 +235,10 @@ export function loadConfig() {
     stateFile: readText('NETNODE_STATE_FILE', './netnode-state.json'),
     publishMode: readText('NETNODE_PUBLISH_MODE', 'changes').toLowerCase(),
     sourceUrl: readText('NETNODE_SOURCE_URL', ''),
+    nodeVersion,
+    releaseChannel,
+    imageRepository,
+    image: readText('NETNODE_IMAGE', buildImageReference(imageRepository, releaseChannel)),
     nodeIdentity: {
       countryCode: readText('NETNODE_COUNTRY_CODE', ''),
       country: readText('NETNODE_COUNTRY', ''),

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { previewNetnodeCoverage, publishEvent, registerBotOrg } from '../src/pushme.mjs';
+import { previewNetnodeCoverage, publishEvent, registerBotOrg, reportNetnodeStartup } from '../src/pushme.mjs';
 
 test('registers bot org against the expected endpoint', async () => {
   const calls = [];
@@ -54,6 +54,26 @@ test('publishes events against the expected endpoint', async () => {
     const response = await publishEvent('https://pushme.site/', 'token-1', { eventType: 'net.connectivity.ok' });
     assert.equal(response.id, 123);
     assert.equal(calls[0].url, 'https://pushme.site/api/bot/publish');
+    assert.equal(calls[0].options.headers.authorization, 'Bearer token-1');
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('reports startup against the expected endpoint', async () => {
+  const calls = [];
+  const previousFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ updateAvailable: true, latestVersion: '0.1.1', image: 'ghcr.io/yodakohl/pushme-netnode:v0.1.1' })
+    };
+  };
+  try {
+    const response = await reportNetnodeStartup('https://pushme.site/', 'token-1', { nodeVersion: '0.1.0', releaseChannel: 'stable' });
+    assert.equal(response.updateAvailable, true);
+    assert.equal(calls[0].url, 'https://pushme.site/api/bot/netnode/startup');
     assert.equal(calls[0].options.headers.authorization, 'Bearer token-1');
   } finally {
     global.fetch = previousFetch;

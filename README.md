@@ -25,7 +25,7 @@ This repo targets AI agents that can operate infrastructure with a human in the 
 If the host already has Docker:
 
 ```bash
-docker run -d --name pushme-netnode --hostname "$(hostname)-netnode" -e PUSHME_AUTO_SETUP=1 -e PUSHME_SETUP_ORG_NAME="$(hostname)-netnode" -e PUSHME_SETUP_LOCATION="$(hostname)-netnode" -v pushme-netnode-data:/data ghcr.io/yodakohl/pushme-netnode:latest
+docker run -d --name pushme-netnode --hostname "$(hostname)-netnode" -e PUSHME_AUTO_SETUP=1 -e PUSHME_SETUP_ORG_NAME="$(hostname)-netnode" -e PUSHME_SETUP_LOCATION="$(hostname)-netnode" -e NETNODE_RELEASE_CHANNEL=stable -v pushme-netnode-data:/data ghcr.io/yodakohl/pushme-netnode:stable
 ```
 
 Preview whether the host adds useful coverage before you install anything:
@@ -231,6 +231,8 @@ npm start -- --once --dry-run
 ```bash
 PUSHME_API_KEY=...
 PUSHME_BOT_URL=https://pushme.site
+NETNODE_RELEASE_CHANNEL=stable
+NETNODE_IMAGE_REPOSITORY=ghcr.io/yodakohl/pushme-netnode
 NETNODE_TARGET_HOST=1.1.1.1
 NETNODE_TARGET_URL=https://1.1.1.1/cdn-cgi/trace
 NETNODE_DNS_HOST=example.com
@@ -254,6 +256,8 @@ NETNODE_NETWORK_TYPE=
 
 Notes:
 - `PUSHME_API_KEY` is created and written by `npm run setup`
+- `NETNODE_RELEASE_CHANNEL` supports `stable`, `edge`, or an exact version tag like `v0.1.4`
+- `NETNODE_IMAGE_REPOSITORY` defaults to `ghcr.io/yodakohl/pushme-netnode`
 - `NETNODE_PROFILES_JSON` is the main value-setting knob: each profile adds an independent destination and group
 - `NETNODE_GROUP_THRESHOLDS_JSON` lets you tune sensitivity per group so `resolver`, `web`, and `ai` are not judged by the same latency bar
 - node identity is auto-detected from a public IP metadata service by default and can be overridden with the `NETNODE_COUNTRY_*`, `NETNODE_PROVIDER`, `NETNODE_ASN`, and `NETNODE_NETWORK_TYPE` fields when you know the node should be tagged differently
@@ -278,7 +282,7 @@ npm start
 
 ## Docker / OCI
 
-Use the published image once the GitHub Actions container workflow has run:
+Use the published image once the GitHub Actions container workflow has run. Production nodes should use `stable`, `edge`, or an exact version tag, never `latest`:
 
 ```bash
 docker volume create pushme-netnode-data
@@ -288,8 +292,9 @@ docker run -d \
   -e PUSHME_AUTO_SETUP=1 \
   -e PUSHME_SETUP_ORG_NAME="Frankfurt Home Netnode" \
   -e PUSHME_SETUP_LOCATION=fra-home \
+  -e NETNODE_RELEASE_CHANNEL=stable \
   -v pushme-netnode-data:/data \
-  ghcr.io/yodakohl/pushme-netnode:latest
+  ghcr.io/yodakohl/pushme-netnode:stable
 ```
 
 If you want to build locally instead:
@@ -315,8 +320,34 @@ docker run -d \
 Notes:
 - the container copies `.env` into `/data/.env` so restarts reuse the same API key
 - `NETNODE_STATE_FILE` defaults to `/data/netnode-state.json` in the image
+- the state file includes `schemaVersion` and is migrated before normal startup when the schema changes
 - setup reads `PUSHME_SETUP_*` environment variables, so it stays non-interactive inside the container
 - if you already have an API key, pass `-e PUSHME_API_KEY=...` and skip `PUSHME_AUTO_SETUP=1`
+
+## Safe updates
+
+The published container is immutable. A running node must never update itself by `git pull`, `npm update`, or downloading replacement code into the existing filesystem.
+
+Allowed release channels:
+- `stable`
+- `edge`
+- exact version tags like `v0.1.4`
+
+The process reports its current `nodeVersion`, release channel, image, and state schema to PushMe on startup. The server may respond with update guidance, but the node only logs that guidance. It does not self-update.
+
+Host-side updates are done by replacing the container:
+
+```bash
+docker pull ghcr.io/yodakohl/pushme-netnode:stable
+docker rm -f pushme-netnode
+docker run -d \
+  --name pushme-netnode \
+  --restart unless-stopped \
+  -v pushme-netnode-data:/data \
+  ghcr.io/yodakohl/pushme-netnode:stable
+```
+
+Because state stays in `/data`, updates are reversible: pull a different immutable image tag and restart the container against the same volume.
 
 ## Run as a service
 

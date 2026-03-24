@@ -52,3 +52,18 @@ export async function publishEvent(baseUrl, apiKey, payload) {
   });
   return parseJsonResponse(response, 'PushMe publish');
 }
+
+export async function reportNetnodeStartup(baseUrl, apiKey, payload) {
+  if (!apiKey) {
+    throw new Error('Missing PUSHME_API_KEY');
+  }
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/api/bot/netnode/startup`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(payload)
+  });
+  return parseJsonResponse(response, 'PushMe netnode startup report');
+}

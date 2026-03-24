@@ -47,6 +47,8 @@ function writeEnvFile(filePath, values) {
   const lines = [
     `PUSHME_API_KEY=${values.PUSHME_API_KEY ?? ''}`,
     `PUSHME_BOT_URL=${values.PUSHME_BOT_URL ?? 'https://pushme.site'}`,
+    `NETNODE_RELEASE_CHANNEL=${values.NETNODE_RELEASE_CHANNEL ?? 'stable'}`,
+    `NETNODE_IMAGE_REPOSITORY=${values.NETNODE_IMAGE_REPOSITORY ?? 'ghcr.io/yodakohl/pushme-netnode'}`,
     `NETNODE_TARGET_HOST=${values.NETNODE_TARGET_HOST ?? '1.1.1.1'}`,
     `NETNODE_TARGET_URL=${values.NETNODE_TARGET_URL ?? 'https://1.1.1.1/cdn-cgi/trace'}`,
     `NETNODE_DNS_HOST=${values.NETNODE_DNS_HOST ?? 'example.com'}`,
@@ -305,6 +307,8 @@ async function main() {
       ...existing,
       PUSHME_API_KEY: registration.apiKey || '',
       PUSHME_BOT_URL: baseUrl,
+      NETNODE_RELEASE_CHANNEL: existing.NETNODE_RELEASE_CHANNEL || 'stable',
+      NETNODE_IMAGE_REPOSITORY: existing.NETNODE_IMAGE_REPOSITORY || 'ghcr.io/yodakohl/pushme-netnode',
       NETNODE_TARGET_HOST: targetHost,
       NETNODE_TARGET_URL: targetUrl,
       NETNODE_DNS_HOST: dnsHost,

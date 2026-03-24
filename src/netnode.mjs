@@ -1,5 +1,6 @@
 import dns from 'node:dns/promises';
 import { spawn } from 'node:child_process';
+import { buildUserAgent } from './runtime.mjs';
 
 export async function measureDnsLatency(hostname) {
   const startedAt = Date.now();
@@ -43,7 +44,7 @@ export async function measureHttpProbe(url, profile = {}) {
     method: 'GET',
     redirect: 'follow',
     headers: {
-      'user-agent': 'pushme-netnode/0.2'
+      'user-agent': buildUserAgent(profile.nodeVersion)
     }
   });
   const bodyText = await response.text();
@@ -535,6 +536,10 @@ export function buildEventPayload(config, probeResult, previousState = {}) {
       nodeAsn: identity.asn ?? null,
       nodeNetworkType: identity.networkType ?? null,
       nodeIdentitySource: identity.source ?? null,
+      nodeVersion: config.nodeVersion ?? null,
+      releaseChannel: config.releaseChannel ?? null,
+      image: config.image ?? null,
+      stateSchemaVersion: previousState.schemaVersion ?? null,
       packetCount: config.packetCount,
       severity: classification.severity,
       previousSeverity,
