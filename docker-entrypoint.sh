@@ -1,20 +1,17 @@
 #!/bin/sh
 set -eu
+umask 077
 
-DATA_DIR="${PUSHME_DATA_DIR:-/data}"
-mkdir -p "$DATA_DIR"
+env_file="${NETNODE_ENV_FILE:-/data/netnode.env}"
+tab="$(printf '\t')"
+existing_api_key=""
 
-if [ -f "$DATA_DIR/.env" ]; then
-  cp "$DATA_DIR/.env" .env
+if [ -f "$env_file" ]; then
+  existing_api_key="$(awk -F "$tab" '$1=="PUSHME_API_KEY"{print $2; exit}' "$env_file" 2>/dev/null || true)"
 fi
 
-if [ ! -f .env ] && [ "${PUSHME_AUTO_SETUP:-0}" = "1" ]; then
-  node ./scripts/setup.mjs
-  cp .env "$DATA_DIR/.env"
-fi
-
-if [ -f .env ] && [ ! -f "$DATA_DIR/.env" ]; then
-  cp .env "$DATA_DIR/.env"
+if [ "${PUSHME_AUTO_SETUP:-0}" = "1" ] && [ -z "${PUSHME_API_KEY:-${existing_api_key:-}}" ]; then
+  sh ./setup.sh
 fi
 
 exec "$@"

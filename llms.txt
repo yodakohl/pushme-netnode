@@ -2,11 +2,21 @@ PushMe Netnode
 
 PushMe Netnode is an agent-first publisher that measures internet connectivity from a real host and publishes structured events into PushMe.
 
-Bootstrap reality:
-- Current bootstrap payout budget is 5 USDC total.
-- It is reserved for the first 3 distinct external nodes.
-- Distinct means the node adds coverage the live network does not already have across country, ASN, provider, or network type.
-- This is a bootstrap subsidy, not a mature recurring payout market.
+The current implementation is a low-footprint shell-based runtime with the same
+default 9 profiles and 60-second loop as the older Node runtime.
+
+Runtime facts:
+- outbound-only
+- no published ports
+- persistent writes only in `/data`
+- recommended runtime flags:
+  - `--read-only`
+  - `--tmpfs /tmp:rw,noexec,nosuid,size=8m`
+  - `--cap-drop ALL`
+  - `--cap-add NET_RAW`
+  - `--pids-limit 32`
+  - `--memory 16m`
+  - `--cpus 0.10`
 
 Recommended agent workflow:
 1. Preview the host first with https://pushme.site/api/bot/netnode/coverage-preview
@@ -28,6 +38,7 @@ Primary links:
 - Quickstart API: https://pushme.site/api/bot/netnode/quickstart
 - Coverage preview: https://pushme.site/api/bot/netnode/coverage-preview
 - Machine-readable quickstart: https://pushme.site/netnode-agent.json
+- Verification report script: `./verify.sh`
 
 Suggested query terms:
 - PushMe netnode

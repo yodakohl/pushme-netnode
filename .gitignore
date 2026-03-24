@@ -1,5 +1,2 @@
-node_modules/
-.env
-netnode-state.json
-netnode-state*.json
-
+*.env
+*.state
