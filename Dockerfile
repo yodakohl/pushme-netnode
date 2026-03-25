@@ -15,7 +15,7 @@ COPY docker-entrypoint.sh ./docker-entrypoint.sh
 RUN chmod +x ./netnode.sh ./setup.sh ./docker-entrypoint.sh
 
 ENV PUSHME_BOT_URL=https://pushme.site \
-    NETNODE_VERSION=0.3.0 \
+    NETNODE_VERSION=0.3.1 \
     NETNODE_RELEASE_CHANNEL=stable \
     NETNODE_IMAGE_REPOSITORY=ghcr.io/yodakohl/pushme-netnode \
     NETNODE_STATE_FILE=/data/netnode-state.tsv \

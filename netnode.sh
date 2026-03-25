@@ -2,7 +2,7 @@
 set -eu
 umask 077
 
-VERSION="${NETNODE_VERSION:-0.3.0}"
+VERSION="${NETNODE_VERSION:-0.3.1}"
 BASE_URL="${PUSHME_BOT_URL:-https://pushme.site}"
 STATE_FILE="${NETNODE_STATE_FILE:-./netnode-state.tsv}"
 ENV_FILE="${NETNODE_ENV_FILE:-./netnode.env}"
@@ -262,7 +262,7 @@ google-resolver|Google Resolver|resolver|8.8.8.8|https://www.google.com/generate
 quad9-resolver|Quad9 Resolver|resolver|9.9.9.9|https://www.quad9.net/|dns.quad9.net|1|0|1
 github-web|GitHub Web|web|github.com|https://github.com/robots.txt|github.com|1|0|1
 wikipedia-web|Wikipedia Web|web|wikipedia.org|https://www.wikipedia.org/|wikipedia.org|1|0|1
-example-web|Example Web|web|example.com|https://example.com/|example.com|1|0|1
+iana-web|IANA Web|web|www.iana.org|https://www.iana.org/|www.iana.org|1|0|1
 openai-status-ai|OpenAI Status|ai|status.openai.com|https://status.openai.com/api/v2/status.json|status.openai.com|0|1|1
 anthropic-status-ai|Anthropic Status|ai|status.anthropic.com|https://status.anthropic.com/api/v2/status.json|status.anthropic.com|0|1|1
 huggingface-ai|Hugging Face|ai|huggingface.co|https://huggingface.co/|huggingface.co|0|0|1
@@ -421,7 +421,7 @@ measure_http() {
       parse_curl_metrics "$metrics_text"
       http_code="$METRIC_HTTP_CODE"
       case "${http_code:-0}" in
-        403|405|501)
+        403|404|405|429|500|501|502|503|504)
           if ! metrics_text="$(
             curl -sS -L --max-time 8 -A "pushme-netnode/${VERSION}" \
               -o /dev/null \
