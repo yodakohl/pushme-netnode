@@ -2,7 +2,7 @@
 set -eu
 umask 077
 
-VERSION="${NETNODE_VERSION:-0.2.0}"
+VERSION="${NETNODE_VERSION:-0.3.0}"
 BASE_URL="${PUSHME_BOT_URL:-https://pushme.site}"
 STATE_FILE="${NETNODE_STATE_FILE:-./netnode-state.tsv}"
 ENV_FILE="${NETNODE_ENV_FILE:-./netnode.env}"
@@ -31,7 +31,7 @@ PUSHME_API_KEY="${PUSHME_API_KEY:-}"
 BASE_URL="${PUSHME_BOT_URL:-$BASE_URL}"
 LOCATION="${NETNODE_LOCATION:-$LOCATION}"
 
-STATE_SCHEMA_VERSION=1
+STATE_SCHEMA_VERSION=2
 
 debug_log() {
   [ "$DEBUG" = "1" ] || return 0
@@ -172,13 +172,40 @@ present_suffix() {
   fi
 }
 
+append_csv_unique() {
+  list="$1"
+  value="$2"
+  if [ -z "$value" ]; then
+    printf '%s' "$list"
+    return
+  fi
+  case ",$list," in
+    *,"$value",*)
+      printf '%s' "$list"
+      ;;
+    *)
+      if [ -n "$list" ]; then
+        printf '%s,%s' "$list" "$value"
+      else
+        printf '%s' "$value"
+      fi
+      ;;
+  esac
+}
+
 state_init() {
-  STATE_LAST_SEVERITY=""
-  STATE_LAST_FINGERPRINT=""
-  STATE_LAST_PUBLISHED_AT=""
-  STATE_PENDING_FINGERPRINT=""
-  STATE_PENDING_COUNT="0"
-  STATE_PENDING_SEVERITY=""
+  CONNECTIVITY_LAST_SEVERITY=""
+  CONNECTIVITY_LAST_FINGERPRINT=""
+  CONNECTIVITY_LAST_PUBLISHED_AT=""
+  CONNECTIVITY_PENDING_FINGERPRINT=""
+  CONNECTIVITY_PENDING_COUNT="0"
+  CONNECTIVITY_PENDING_SEVERITY=""
+  PROVIDER_LAST_SEVERITY=""
+  PROVIDER_LAST_FINGERPRINT=""
+  PROVIDER_LAST_PUBLISHED_AT=""
+  PROVIDER_PENDING_FINGERPRINT=""
+  PROVIDER_PENDING_COUNT="0"
+  PROVIDER_PENDING_SEVERITY=""
 }
 
 state_load() {
@@ -186,12 +213,18 @@ state_load() {
   [ -f "$STATE_FILE" ] || return 0
   while IFS="$TAB" read -r key value || [ -n "${key:-}" ]; do
     case "$key" in
-      STATE_LAST_SEVERITY) STATE_LAST_SEVERITY="$value" ;;
-      STATE_LAST_FINGERPRINT) STATE_LAST_FINGERPRINT="$value" ;;
-      STATE_LAST_PUBLISHED_AT) STATE_LAST_PUBLISHED_AT="$value" ;;
-      STATE_PENDING_FINGERPRINT) STATE_PENDING_FINGERPRINT="$value" ;;
-      STATE_PENDING_COUNT) STATE_PENDING_COUNT="$value" ;;
-      STATE_PENDING_SEVERITY) STATE_PENDING_SEVERITY="$value" ;;
+      STATE_LAST_SEVERITY|STATE_CONNECTIVITY_LAST_SEVERITY) CONNECTIVITY_LAST_SEVERITY="$value" ;;
+      STATE_LAST_FINGERPRINT|STATE_CONNECTIVITY_LAST_FINGERPRINT) CONNECTIVITY_LAST_FINGERPRINT="$value" ;;
+      STATE_LAST_PUBLISHED_AT|STATE_CONNECTIVITY_LAST_PUBLISHED_AT) CONNECTIVITY_LAST_PUBLISHED_AT="$value" ;;
+      STATE_PENDING_FINGERPRINT|STATE_CONNECTIVITY_PENDING_FINGERPRINT) CONNECTIVITY_PENDING_FINGERPRINT="$value" ;;
+      STATE_PENDING_COUNT|STATE_CONNECTIVITY_PENDING_COUNT) CONNECTIVITY_PENDING_COUNT="$value" ;;
+      STATE_PENDING_SEVERITY|STATE_CONNECTIVITY_PENDING_SEVERITY) CONNECTIVITY_PENDING_SEVERITY="$value" ;;
+      STATE_PROVIDER_LAST_SEVERITY) PROVIDER_LAST_SEVERITY="$value" ;;
+      STATE_PROVIDER_LAST_FINGERPRINT) PROVIDER_LAST_FINGERPRINT="$value" ;;
+      STATE_PROVIDER_LAST_PUBLISHED_AT) PROVIDER_LAST_PUBLISHED_AT="$value" ;;
+      STATE_PROVIDER_PENDING_FINGERPRINT) PROVIDER_PENDING_FINGERPRINT="$value" ;;
+      STATE_PROVIDER_PENDING_COUNT) PROVIDER_PENDING_COUNT="$value" ;;
+      STATE_PROVIDER_PENDING_SEVERITY) PROVIDER_PENDING_SEVERITY="$value" ;;
     esac
   done <"$STATE_FILE"
 }
@@ -200,12 +233,24 @@ state_save() {
   tmp_state="$(mktemp)"
   chmod 600 "$tmp_state"
   {
-    printf 'STATE_LAST_SEVERITY%s%s\n' "$TAB" "$STATE_LAST_SEVERITY"
-    printf 'STATE_LAST_FINGERPRINT%s%s\n' "$TAB" "$STATE_LAST_FINGERPRINT"
-    printf 'STATE_LAST_PUBLISHED_AT%s%s\n' "$TAB" "$STATE_LAST_PUBLISHED_AT"
-    printf 'STATE_PENDING_FINGERPRINT%s%s\n' "$TAB" "$STATE_PENDING_FINGERPRINT"
-    printf 'STATE_PENDING_COUNT%s%s\n' "$TAB" "$STATE_PENDING_COUNT"
-    printf 'STATE_PENDING_SEVERITY%s%s\n' "$TAB" "$STATE_PENDING_SEVERITY"
+    printf 'STATE_LAST_SEVERITY%s%s\n' "$TAB" "$CONNECTIVITY_LAST_SEVERITY"
+    printf 'STATE_LAST_FINGERPRINT%s%s\n' "$TAB" "$CONNECTIVITY_LAST_FINGERPRINT"
+    printf 'STATE_LAST_PUBLISHED_AT%s%s\n' "$TAB" "$CONNECTIVITY_LAST_PUBLISHED_AT"
+    printf 'STATE_PENDING_FINGERPRINT%s%s\n' "$TAB" "$CONNECTIVITY_PENDING_FINGERPRINT"
+    printf 'STATE_PENDING_COUNT%s%s\n' "$TAB" "$CONNECTIVITY_PENDING_COUNT"
+    printf 'STATE_PENDING_SEVERITY%s%s\n' "$TAB" "$CONNECTIVITY_PENDING_SEVERITY"
+    printf 'STATE_CONNECTIVITY_LAST_SEVERITY%s%s\n' "$TAB" "$CONNECTIVITY_LAST_SEVERITY"
+    printf 'STATE_CONNECTIVITY_LAST_FINGERPRINT%s%s\n' "$TAB" "$CONNECTIVITY_LAST_FINGERPRINT"
+    printf 'STATE_CONNECTIVITY_LAST_PUBLISHED_AT%s%s\n' "$TAB" "$CONNECTIVITY_LAST_PUBLISHED_AT"
+    printf 'STATE_CONNECTIVITY_PENDING_FINGERPRINT%s%s\n' "$TAB" "$CONNECTIVITY_PENDING_FINGERPRINT"
+    printf 'STATE_CONNECTIVITY_PENDING_COUNT%s%s\n' "$TAB" "$CONNECTIVITY_PENDING_COUNT"
+    printf 'STATE_CONNECTIVITY_PENDING_SEVERITY%s%s\n' "$TAB" "$CONNECTIVITY_PENDING_SEVERITY"
+    printf 'STATE_PROVIDER_LAST_SEVERITY%s%s\n' "$TAB" "$PROVIDER_LAST_SEVERITY"
+    printf 'STATE_PROVIDER_LAST_FINGERPRINT%s%s\n' "$TAB" "$PROVIDER_LAST_FINGERPRINT"
+    printf 'STATE_PROVIDER_LAST_PUBLISHED_AT%s%s\n' "$TAB" "$PROVIDER_LAST_PUBLISHED_AT"
+    printf 'STATE_PROVIDER_PENDING_FINGERPRINT%s%s\n' "$TAB" "$PROVIDER_PENDING_FINGERPRINT"
+    printf 'STATE_PROVIDER_PENDING_COUNT%s%s\n' "$TAB" "$PROVIDER_PENDING_COUNT"
+    printf 'STATE_PROVIDER_PENDING_SEVERITY%s%s\n' "$TAB" "$PROVIDER_PENDING_SEVERITY"
   } >"$tmp_state"
   mv "$tmp_state" "$STATE_FILE"
 }
@@ -477,8 +522,6 @@ classify_profile() {
   dns_error="$5"
   http_error="$6"
   packet_error="$7"
-  provider_severity="$8"
-  provider_affects="$9"
 
   dns_warn="$(dns_warn_ms "$group")"
   http_warn="$(http_warn_ms "$group")"
@@ -493,14 +536,6 @@ classify_profile() {
 
   if [ "$failure_count" -ge 3 ]; then
     printf 'down'
-    return
-  fi
-  if [ "$provider_affects" = "1" ] && [ "$provider_severity" = "down" ]; then
-    printf 'down'
-    return
-  fi
-  if [ "$provider_affects" = "1" ] && [ "$provider_severity" = "degraded" ]; then
-    printf 'degraded'
     return
   fi
   if { [ -n "$packet_loss" ] && [ "${packet_loss%.*}" -ge "$packet_down" ]; } || \
@@ -540,6 +575,12 @@ run_probe_cycle() {
   resolver_provider_reported=0
   web_provider_reported=0
   ai_provider_reported=0
+  provider_profile_count=0
+  provider_impacted_count=0
+  provider_down_count=0
+  provider_degraded_count=0
+  provider_ok_count=0
+  provider_group_count=0
   total_http_bytes=0
   total_ping_packets=0
   packet_probe_target_count=0
@@ -554,7 +595,11 @@ run_probe_cycle() {
   max_packet_loss=0
   impacted_groups=""
   impacted_profiles=""
-  fingerprint_profiles=""
+  provider_groups=""
+  provider_impacted_groups=""
+  provider_impacted_profiles=""
+  connectivity_fingerprint_profiles=""
+  provider_fingerprint_profiles=""
 
   while IFS='|' read -r name label group target_host target_url dns_host packet_probe provider_status_enabled provider_status_affects || [ -n "${name:-}" ]; do
     [ -n "$name" ] || continue
@@ -614,6 +659,33 @@ EOF
         ;;
     esac
 
+    if [ "$provider_status_enabled" = "1" ]; then
+      next_provider_groups="$(append_csv_unique "$provider_groups" "$group")"
+      if [ "$next_provider_groups" != "$provider_groups" ]; then
+        provider_groups="$next_provider_groups"
+        provider_group_count=$((provider_group_count + 1))
+      fi
+      provider_profile_count=$((provider_profile_count + 1))
+      case "$provider_severity" in
+        down)
+          provider_down_count=$((provider_down_count + 1))
+          provider_impacted_count=$((provider_impacted_count + 1))
+          provider_impacted_groups="$(append_csv_unique "$provider_impacted_groups" "$group")"
+          provider_impacted_profiles="${provider_impacted_profiles}${provider_impacted_profiles:+,}${name}"
+          ;;
+        degraded)
+          provider_degraded_count=$((provider_degraded_count + 1))
+          provider_impacted_count=$((provider_impacted_count + 1))
+          provider_impacted_groups="$(append_csv_unique "$provider_impacted_groups" "$group")"
+          provider_impacted_profiles="${provider_impacted_profiles}${provider_impacted_profiles:+,}${name}"
+          ;;
+        *)
+          provider_ok_count=$((provider_ok_count + 1))
+          ;;
+      esac
+      provider_fingerprint_profiles="${provider_fingerprint_profiles}${provider_fingerprint_profiles:+|}${name}:${group}:${provider_severity:-ok}:${provider_indicator:-none}:${http_status:-na}"
+    fi
+
     [ -n "$dns_latency" ] && dns_sum=$((dns_sum + dns_latency)) && dns_count=$((dns_count + 1))
     if [ -n "$http_latency" ]; then
       http_sum=$((http_sum + http_latency))
@@ -639,7 +711,7 @@ EOF
       impacted_profiles="${impacted_profiles}${impacted_profiles:+,}${name}"
     fi
 
-    fingerprint_profiles="${fingerprint_profiles}${fingerprint_profiles:+|}${name}:${group}:${severity}:${provider_severity:-none}:${http_status:-na}:$(present_suffix "$dns_error" 'dns!')$(present_suffix "$http_error" 'http!')$(present_suffix "$packet_error" 'ping!')"
+    connectivity_fingerprint_profiles="${connectivity_fingerprint_profiles}${connectivity_fingerprint_profiles:+|}${name}:${group}:${severity}:${http_status:-na}:$(present_suffix "$dns_error" 'dns!')$(present_suffix "$http_error" 'http!')$(present_suffix "$packet_error" 'ping!')"
 
     printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
       "$name" "$(sanitize_field "$label")" "$group" "$severity" \
@@ -683,10 +755,6 @@ EOF
     diagnosis_code="healthy"
     diagnosis_label="healthy connectivity"
     diagnosis_summary="All configured probe groups are healthy."
-  elif [ "$ai_count" -gt 0 ] && [ "$ai_provider_reported" -gt 0 ] && [ "$ai_impacted" -eq "$ai_provider_reported" ] && [ "$resolver_impacted" -eq 0 ] && [ "$web_impacted" -eq 0 ]; then
-    diagnosis_code="ai-platform-incident-reported"
-    diagnosis_label="AI platform incident reported"
-    diagnosis_summary="AI status endpoints are reachable but currently report platform-side degradation."
   elif [ "$resolver_count" -gt 0 ] && [ "$resolver_impacted" -eq "$resolver_count" ] && [ "$web_impacted" -eq 0 ]; then
     diagnosis_code="resolver-reachability-issue"
     diagnosis_label="resolver reachability issue"
@@ -711,7 +779,7 @@ EOF
     elif [ "$scope" = "localized" ]; then
       diagnosis_code="single-destination-anomaly"
       diagnosis_label="single destination anomaly"
-      diagnosis_summary="Only one destination is degraded, which usually points to a provider-specific issue rather than local outage."
+      diagnosis_summary="Only one destination is degraded, which usually points to a destination-specific issue rather than a wider local outage."
     fi
   fi
 
@@ -728,127 +796,286 @@ EOF
   [ "$ping_count" -gt 0 ] && avg_ping=$((ping_sum / ping_count))
   [ "$jitter_count" -gt 0 ] && avg_jitter=$((jitter_sum / jitter_count))
 
-  fingerprint="${overall_severity}:${scope}:${diagnosis_code}:${impacted_count}/${profile_count}:${fingerprint_profiles}"
+  connectivity_fingerprint="${overall_severity}:${scope}:${diagnosis_code}:${impacted_count}/${profile_count}:${connectivity_fingerprint_profiles}"
 
-  PROBE_RESULTS_FILE="$results_file"
-  PROBE_MEASURED_AT="$measured_at"
-  PROBE_OVERALL_SEVERITY="$overall_severity"
-  PROBE_EVENT_TYPE="$event_type"
-  PROBE_SCOPE="$scope"
-  PROBE_DIAGNOSIS_CODE="$diagnosis_code"
-  PROBE_DIAGNOSIS_LABEL="$diagnosis_label"
-  PROBE_DIAGNOSIS_SUMMARY="$diagnosis_summary"
-  PROBE_PROFILE_COUNT="$profile_count"
-  PROBE_IMPACTED_COUNT="$impacted_count"
-  PROBE_DOWN_COUNT="$down_count"
-  PROBE_DEGRADED_COUNT="$degraded_count"
-  PROBE_OK_COUNT="$ok_count"
-  PROBE_IMPACTED_GROUPS="$impacted_groups"
-  PROBE_IMPACTED_PROFILES="$impacted_profiles"
-  PROBE_FINGERPRINT="$fingerprint"
-  PROBE_AVG_DNS="$avg_dns"
-  PROBE_AVG_HTTP="$avg_http"
-  PROBE_AVG_PING="$avg_ping"
-  PROBE_AVG_JITTER="$avg_jitter"
-  PROBE_MAX_PACKET_LOSS="$max_packet_loss"
-  PROBE_TOTAL_HTTP_BYTES="$total_http_bytes"
-  PROBE_TOTAL_PING_PACKETS="$total_ping_packets"
-  PROBE_PACKET_PROBE_TARGET_COUNT="$packet_probe_target_count"
-  PROBE_RESOLVER_COUNT="$resolver_count"
-  PROBE_RESOLVER_IMPACTED="$resolver_impacted"
-  PROBE_RESOLVER_PROVIDER_REPORTED="$resolver_provider_reported"
-  PROBE_WEB_COUNT="$web_count"
-  PROBE_WEB_IMPACTED="$web_impacted"
-  PROBE_WEB_PROVIDER_REPORTED="$web_provider_reported"
-  PROBE_AI_COUNT="$ai_count"
-  PROBE_AI_IMPACTED="$ai_impacted"
-  PROBE_AI_PROVIDER_REPORTED="$ai_provider_reported"
+  provider_scope="healthy"
+  provider_event_type="net.provider.ok"
+  provider_diagnosis_code="provider-status-healthy"
+  provider_diagnosis_label="provider status healthy"
+  provider_diagnosis_summary="Monitored provider status endpoints do not report a current provider-side incident."
+  if [ "$provider_impacted_count" -eq 0 ]; then
+    provider_overall_severity="ok"
+    provider_scope="healthy"
+    provider_event_type="net.provider.ok"
+  else
+    provider_scope="partial"
+    if [ "$provider_profile_count" -gt 0 ] && [ "$provider_impacted_count" -eq "$provider_profile_count" ]; then
+      provider_scope="global"
+    elif [ "$provider_impacted_count" -eq 1 ]; then
+      provider_scope="localized"
+    fi
+    if [ "$provider_down_count" -gt 0 ]; then
+      provider_overall_severity="down"
+      provider_event_type="net.provider.down"
+      if [ "$provider_impacted_count" -eq "$provider_profile_count" ]; then
+        provider_diagnosis_code="provider-outage-reported"
+        provider_diagnosis_label="provider outage reported"
+        provider_diagnosis_summary="All monitored provider status endpoints currently report major or critical provider-side incidents."
+      else
+        provider_diagnosis_code="partial-provider-outage-reported"
+        provider_diagnosis_label="partial provider outage reported"
+        provider_diagnosis_summary="At least one monitored provider status endpoint reports a major or critical provider-side incident."
+      fi
+    else
+      provider_overall_severity="degraded"
+      provider_event_type="net.provider.degraded"
+      provider_diagnosis_code="provider-degradation-reported"
+      provider_diagnosis_label="provider degradation reported"
+      provider_diagnosis_summary="One or more monitored provider status endpoints report degraded service while direct connectivity probes may still be healthy."
+    fi
+  fi
+  provider_fingerprint="${provider_overall_severity}:${provider_scope}:${provider_diagnosis_code}:${provider_impacted_count}/${provider_profile_count}:${provider_fingerprint_profiles}"
+
+  RESULTS_FILE="$results_file"
+  MEASURED_AT="$measured_at"
+  AVG_DNS="$avg_dns"
+  AVG_HTTP="$avg_http"
+  AVG_PING="$avg_ping"
+  AVG_JITTER="$avg_jitter"
+  MAX_PACKET_LOSS="$max_packet_loss"
+  TOTAL_HTTP_BYTES="$total_http_bytes"
+  TOTAL_PING_PACKETS="$total_ping_packets"
+  PACKET_PROBE_TARGET_COUNT="$packet_probe_target_count"
+  RESOLVER_COUNT="$resolver_count"
+  RESOLVER_IMPACTED="$resolver_impacted"
+  RESOLVER_PROVIDER_REPORTED="$resolver_provider_reported"
+  WEB_COUNT="$web_count"
+  WEB_IMPACTED="$web_impacted"
+  WEB_PROVIDER_REPORTED="$web_provider_reported"
+  AI_COUNT="$ai_count"
+  AI_IMPACTED="$ai_impacted"
+  AI_PROVIDER_REPORTED="$ai_provider_reported"
+
+  CONNECTIVITY_GROUP_COUNT="3"
+  CONNECTIVITY_OVERALL_SEVERITY="$overall_severity"
+  CONNECTIVITY_EVENT_TYPE="$event_type"
+  CONNECTIVITY_SCOPE="$scope"
+  CONNECTIVITY_DIAGNOSIS_CODE="$diagnosis_code"
+  CONNECTIVITY_DIAGNOSIS_LABEL="$diagnosis_label"
+  CONNECTIVITY_DIAGNOSIS_SUMMARY="$diagnosis_summary"
+  CONNECTIVITY_PROFILE_COUNT="$profile_count"
+  CONNECTIVITY_IMPACTED_COUNT="$impacted_count"
+  CONNECTIVITY_DOWN_COUNT="$down_count"
+  CONNECTIVITY_DEGRADED_COUNT="$degraded_count"
+  CONNECTIVITY_OK_COUNT="$ok_count"
+  CONNECTIVITY_IMPACTED_GROUPS="$impacted_groups"
+  CONNECTIVITY_IMPACTED_PROFILES="$impacted_profiles"
+  CONNECTIVITY_FINGERPRINT="$connectivity_fingerprint"
+
+  PROVIDER_GROUP_COUNT="$provider_group_count"
+  PROVIDER_OVERALL_SEVERITY="$provider_overall_severity"
+  PROVIDER_EVENT_TYPE="$provider_event_type"
+  PROVIDER_SCOPE="$provider_scope"
+  PROVIDER_DIAGNOSIS_CODE="$provider_diagnosis_code"
+  PROVIDER_DIAGNOSIS_LABEL="$provider_diagnosis_label"
+  PROVIDER_DIAGNOSIS_SUMMARY="$provider_diagnosis_summary"
+  PROVIDER_PROFILE_COUNT="$provider_profile_count"
+  PROVIDER_IMPACTED_COUNT="$provider_impacted_count"
+  PROVIDER_DOWN_COUNT="$provider_down_count"
+  PROVIDER_DEGRADED_COUNT="$provider_degraded_count"
+  PROVIDER_OK_COUNT="$provider_ok_count"
+  PROVIDER_IMPACTED_GROUPS="$provider_impacted_groups"
+  PROVIDER_IMPACTED_PROFILES="$provider_impacted_profiles"
+  PROVIDER_FINGERPRINT="$provider_fingerprint"
 }
 
-should_debounce_degraded() {
-  [ "$PROBE_OVERALL_SEVERITY" = "degraded" ] || return 1
-  [ "$PROBE_MAX_PACKET_LOSS" -gt 0 ] && return 1
+should_debounce_connectivity_degraded() {
+  [ "$CONNECTIVITY_OVERALL_SEVERITY" = "degraded" ] || return 1
+  [ "$MAX_PACKET_LOSS" -gt 0 ] && return 1
   hard_failure=0
   while IFS='|' read -r _ _ _ severity _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ provider_severity dns_error http_error packet_error _; do
     [ "$severity" = "down" ] && hard_failure=1
     [ -n "$dns_error" ] && hard_failure=1
     [ -n "$http_error" ] && hard_failure=1
     [ -n "$packet_error" ] && hard_failure=1
-    [ -n "$provider_severity" ] && hard_failure=1
-  done <"$PROBE_RESULTS_FILE"
+  done <"$RESULTS_FILE"
   [ "$hard_failure" -eq 1 ] && return 1
 
   impacted_group_count=0
-  [ "$PROBE_RESOLVER_IMPACTED" -gt 0 ] && impacted_group_count=$((impacted_group_count + 1))
-  [ "$PROBE_WEB_IMPACTED" -gt 0 ] && impacted_group_count=$((impacted_group_count + 1))
-  [ "$PROBE_AI_IMPACTED" -gt 0 ] && impacted_group_count=$((impacted_group_count + 1))
+  [ "$RESOLVER_IMPACTED" -gt 0 ] && impacted_group_count=$((impacted_group_count + 1))
+  [ "$WEB_IMPACTED" -gt 0 ] && impacted_group_count=$((impacted_group_count + 1))
+  [ "$AI_IMPACTED" -gt 0 ] && impacted_group_count=$((impacted_group_count + 1))
   [ "$impacted_group_count" -ge 2 ] && return 1
-  [ "$PROBE_IMPACTED_COUNT" -ge 4 ] && return 1
+  [ "$CONNECTIVITY_IMPACTED_COUNT" -ge 4 ] && return 1
   return 0
 }
 
-decide_publication() {
+decide_connectivity_publication() {
+  CONNECTIVITY_DECISION_PUBLISH=0
+  CONNECTIVITY_DECISION_REASON=""
+
   if [ "$PUBLISH_MODE" = "always" ]; then
-    DECISION_PUBLISH=1
-    DECISION_REASON="publish mode always"
+    CONNECTIVITY_DECISION_PUBLISH=1
+    CONNECTIVITY_DECISION_REASON="publish mode always"
     return
   fi
 
-  if [ -z "$PROBE_FINGERPRINT" ] || [ -z "$PROBE_OVERALL_SEVERITY" ]; then
-    DECISION_PUBLISH=0
-    DECISION_REASON="missing probe fingerprint"
+  if [ -z "$CONNECTIVITY_FINGERPRINT" ] || [ -z "$CONNECTIVITY_OVERALL_SEVERITY" ]; then
+    CONNECTIVITY_DECISION_PUBLISH=0
+    CONNECTIVITY_DECISION_REASON="missing connectivity fingerprint"
     return
   fi
 
-  if [ "$STATE_LAST_FINGERPRINT" = "$PROBE_FINGERPRINT" ]; then
-    DECISION_PUBLISH=0
-    DECISION_REASON="no state change"
+  if [ "$CONNECTIVITY_LAST_FINGERPRINT" = "$CONNECTIVITY_FINGERPRINT" ]; then
+    CONNECTIVITY_DECISION_PUBLISH=0
+    CONNECTIVITY_DECISION_REASON="no connectivity state change"
     return
   fi
 
-  if [ "$PROBE_OVERALL_SEVERITY" = "ok" ]; then
-    if [ -n "$STATE_LAST_SEVERITY" ] && [ "$STATE_LAST_SEVERITY" != "ok" ]; then
-      DECISION_PUBLISH=1
-      DECISION_REASON="published recovery"
-      PROBE_EVENT_TYPE="net.connectivity.recovered"
+  if [ "$CONNECTIVITY_OVERALL_SEVERITY" = "ok" ]; then
+    if [ -n "$CONNECTIVITY_LAST_SEVERITY" ] && [ "$CONNECTIVITY_LAST_SEVERITY" != "ok" ]; then
+      CONNECTIVITY_DECISION_PUBLISH=1
+      CONNECTIVITY_DECISION_REASON="published connectivity recovery"
+      CONNECTIVITY_EVENT_TYPE="net.connectivity.recovered"
     else
-      DECISION_PUBLISH=0
-      DECISION_REASON="healthy with no published incident"
+      CONNECTIVITY_DECISION_PUBLISH=0
+      CONNECTIVITY_DECISION_REASON="healthy connectivity with no published incident"
     fi
     return
   fi
 
-  if [ "$PROBE_OVERALL_SEVERITY" = "down" ] || ! should_debounce_degraded; then
-    DECISION_PUBLISH=1
-    if [ "$PROBE_OVERALL_SEVERITY" = "down" ]; then
-      DECISION_REASON="hard outage"
+  if [ "$CONNECTIVITY_OVERALL_SEVERITY" = "down" ] || ! should_debounce_connectivity_degraded; then
+    CONNECTIVITY_DECISION_PUBLISH=1
+    if [ "$CONNECTIVITY_OVERALL_SEVERITY" = "down" ]; then
+      CONNECTIVITY_DECISION_REASON="hard connectivity outage"
     else
-      DECISION_REASON="significant degradation"
+      CONNECTIVITY_DECISION_REASON="significant connectivity degradation"
     fi
     return
   fi
 
-  if [ "$STATE_PENDING_FINGERPRINT" = "$PROBE_FINGERPRINT" ]; then
-    next_pending_count=$((STATE_PENDING_COUNT + 1))
+  if [ "$CONNECTIVITY_PENDING_FINGERPRINT" = "$CONNECTIVITY_FINGERPRINT" ]; then
+    next_pending_count=$((CONNECTIVITY_PENDING_COUNT + 1))
   else
     next_pending_count=1
   fi
 
   if [ "$next_pending_count" -ge "$DEBOUNCE_COUNT_REQUIRED" ]; then
-    DECISION_PUBLISH=1
-    DECISION_REASON="degraded state persisted for ${next_pending_count} probes"
+    CONNECTIVITY_DECISION_PUBLISH=1
+    CONNECTIVITY_DECISION_REASON="connectivity degradation persisted for ${next_pending_count} probes"
     return
   fi
 
-  STATE_PENDING_FINGERPRINT="$PROBE_FINGERPRINT"
-  STATE_PENDING_COUNT="$next_pending_count"
-  STATE_PENDING_SEVERITY="$PROBE_OVERALL_SEVERITY"
-  DECISION_PUBLISH=0
+  CONNECTIVITY_PENDING_FINGERPRINT="$CONNECTIVITY_FINGERPRINT"
+  CONNECTIVITY_PENDING_COUNT="$next_pending_count"
+  CONNECTIVITY_PENDING_SEVERITY="$CONNECTIVITY_OVERALL_SEVERITY"
+  CONNECTIVITY_DECISION_PUBLISH=0
   if [ "$next_pending_count" -eq 1 ]; then
-    DECISION_REASON="waiting for degraded confirmation"
+    CONNECTIVITY_DECISION_REASON="waiting for degraded connectivity confirmation"
   else
-    DECISION_REASON="waiting for degraded persistence"
+    CONNECTIVITY_DECISION_REASON="waiting for degraded connectivity persistence"
   fi
+}
+
+decide_provider_publication() {
+  PROVIDER_DECISION_PUBLISH=0
+  PROVIDER_DECISION_REASON=""
+
+  if [ "$PROVIDER_PROFILE_COUNT" -le 0 ] || [ -z "$PROVIDER_FINGERPRINT" ] || [ -z "$PROVIDER_OVERALL_SEVERITY" ]; then
+    PROVIDER_DECISION_PUBLISH=0
+    PROVIDER_DECISION_REASON="provider status monitoring unavailable"
+    return
+  fi
+
+  if [ "$PROVIDER_LAST_FINGERPRINT" = "$PROVIDER_FINGERPRINT" ]; then
+    PROVIDER_DECISION_PUBLISH=0
+    PROVIDER_DECISION_REASON="no provider state change"
+    return
+  fi
+
+  if [ "$PROVIDER_OVERALL_SEVERITY" = "ok" ]; then
+    if [ -n "$PROVIDER_LAST_SEVERITY" ] && [ "$PROVIDER_LAST_SEVERITY" != "ok" ]; then
+      PROVIDER_DECISION_PUBLISH=1
+      PROVIDER_DECISION_REASON="published provider recovery"
+      PROVIDER_EVENT_TYPE="net.provider.recovered"
+    else
+      PROVIDER_DECISION_PUBLISH=0
+      PROVIDER_DECISION_REASON="healthy provider status with no published incident"
+    fi
+    return
+  fi
+
+  PROVIDER_DECISION_PUBLISH=1
+  if [ "$PROVIDER_OVERALL_SEVERITY" = "down" ]; then
+    PROVIDER_DECISION_REASON="provider outage reported"
+  else
+    PROVIDER_DECISION_REASON="provider degradation reported"
+  fi
+}
+
+select_probe_family() {
+  family="$1"
+  PROBE_SIGNAL_FAMILY="$family"
+  PROBE_RESULTS_FILE="$RESULTS_FILE"
+  PROBE_MEASURED_AT="$MEASURED_AT"
+  PROBE_AVG_DNS="$AVG_DNS"
+  PROBE_AVG_HTTP="$AVG_HTTP"
+  PROBE_AVG_PING="$AVG_PING"
+  PROBE_AVG_JITTER="$AVG_JITTER"
+  PROBE_MAX_PACKET_LOSS="$MAX_PACKET_LOSS"
+  PROBE_TOTAL_HTTP_BYTES="$TOTAL_HTTP_BYTES"
+  PROBE_TOTAL_PING_PACKETS="$TOTAL_PING_PACKETS"
+  PROBE_PACKET_PROBE_TARGET_COUNT="$PACKET_PROBE_TARGET_COUNT"
+  PROBE_RESOLVER_COUNT="$RESOLVER_COUNT"
+  PROBE_RESOLVER_IMPACTED="$RESOLVER_IMPACTED"
+  PROBE_RESOLVER_PROVIDER_REPORTED="$RESOLVER_PROVIDER_REPORTED"
+  PROBE_WEB_COUNT="$WEB_COUNT"
+  PROBE_WEB_IMPACTED="$WEB_IMPACTED"
+  PROBE_WEB_PROVIDER_REPORTED="$WEB_PROVIDER_REPORTED"
+  PROBE_AI_COUNT="$AI_COUNT"
+  PROBE_AI_IMPACTED="$AI_IMPACTED"
+  PROBE_AI_PROVIDER_REPORTED="$AI_PROVIDER_REPORTED"
+
+  case "$family" in
+    provider)
+      PROBE_GROUP_COUNT="$PROVIDER_GROUP_COUNT"
+      PROBE_OVERALL_SEVERITY="$PROVIDER_OVERALL_SEVERITY"
+      PROBE_EVENT_TYPE="$PROVIDER_EVENT_TYPE"
+      PROBE_SCOPE="$PROVIDER_SCOPE"
+      PROBE_DIAGNOSIS_CODE="$PROVIDER_DIAGNOSIS_CODE"
+      PROBE_DIAGNOSIS_LABEL="$PROVIDER_DIAGNOSIS_LABEL"
+      PROBE_DIAGNOSIS_SUMMARY="$PROVIDER_DIAGNOSIS_SUMMARY"
+      PROBE_PROFILE_COUNT="$PROVIDER_PROFILE_COUNT"
+      PROBE_IMPACTED_COUNT="$PROVIDER_IMPACTED_COUNT"
+      PROBE_DOWN_COUNT="$PROVIDER_DOWN_COUNT"
+      PROBE_DEGRADED_COUNT="$PROVIDER_DEGRADED_COUNT"
+      PROBE_OK_COUNT="$PROVIDER_OK_COUNT"
+      PROBE_IMPACTED_GROUPS="$PROVIDER_IMPACTED_GROUPS"
+      PROBE_IMPACTED_PROFILES="$PROVIDER_IMPACTED_PROFILES"
+      PROBE_FINGERPRINT="$PROVIDER_FINGERPRINT"
+      PROBE_PREVIOUS_SEVERITY="$PROVIDER_LAST_SEVERITY"
+      PROBE_PUBLICATION_REASON="$PROVIDER_DECISION_REASON"
+      ;;
+    *)
+      PROBE_GROUP_COUNT="$CONNECTIVITY_GROUP_COUNT"
+      PROBE_OVERALL_SEVERITY="$CONNECTIVITY_OVERALL_SEVERITY"
+      PROBE_EVENT_TYPE="$CONNECTIVITY_EVENT_TYPE"
+      PROBE_SCOPE="$CONNECTIVITY_SCOPE"
+      PROBE_DIAGNOSIS_CODE="$CONNECTIVITY_DIAGNOSIS_CODE"
+      PROBE_DIAGNOSIS_LABEL="$CONNECTIVITY_DIAGNOSIS_LABEL"
+      PROBE_DIAGNOSIS_SUMMARY="$CONNECTIVITY_DIAGNOSIS_SUMMARY"
+      PROBE_PROFILE_COUNT="$CONNECTIVITY_PROFILE_COUNT"
+      PROBE_IMPACTED_COUNT="$CONNECTIVITY_IMPACTED_COUNT"
+      PROBE_DOWN_COUNT="$CONNECTIVITY_DOWN_COUNT"
+      PROBE_DEGRADED_COUNT="$CONNECTIVITY_DEGRADED_COUNT"
+      PROBE_OK_COUNT="$CONNECTIVITY_OK_COUNT"
+      PROBE_IMPACTED_GROUPS="$CONNECTIVITY_IMPACTED_GROUPS"
+      PROBE_IMPACTED_PROFILES="$CONNECTIVITY_IMPACTED_PROFILES"
+      PROBE_FINGERPRINT="$CONNECTIVITY_FINGERPRINT"
+      PROBE_PREVIOUS_SEVERITY="$CONNECTIVITY_LAST_SEVERITY"
+      PROBE_PUBLICATION_REASON="$CONNECTIVITY_DECISION_REASON"
+      ;;
+  esac
 }
 
 build_group_stats_json() {
@@ -933,18 +1160,33 @@ build_profiles_json() {
 
 build_event_payload() {
   title_severity="$PROBE_OVERALL_SEVERITY"
-  [ "$PROBE_EVENT_TYPE" = "net.connectivity.recovered" ] && title_severity="recovered"
+  case "$PROBE_EVENT_TYPE" in
+    net.connectivity.recovered|net.provider.recovered) title_severity="recovered" ;;
+  esac
 
   summary_parts=""
-  if [ "$PROBE_IMPACTED_COUNT" -eq 0 ]; then
-    summary_parts="All ${PROBE_PROFILE_COUNT}/${PROBE_PROFILE_COUNT} probe targets healthy"
+  if [ "$PROBE_SIGNAL_FAMILY" = "provider" ]; then
+    if [ "$PROBE_IMPACTED_COUNT" -eq 0 ]; then
+      summary_parts="All ${PROBE_PROFILE_COUNT}/${PROBE_PROFILE_COUNT} monitored provider status endpoints are healthy"
+    else
+      impacted_list=""
+      while IFS='|' read -r _name label group severity _target_host _target_url _dns_host _packet_probe _dns_latency _http_latency _http_status _http_content_type _http_response_bytes _packet_loss _packet_packets_sent _packet_min _packet_avg _packet_max _packet_jitter provider_indicator _provider_description provider_severity _dns_error _http_error _packet_error _provider_affects; do
+        [ -n "$provider_severity" ] || continue
+        impacted_list="${impacted_list}${impacted_list:+, }${label} ${provider_severity}"
+      done <"$PROBE_RESULTS_FILE"
+      summary_parts="${PROBE_IMPACTED_COUNT}/${PROBE_PROFILE_COUNT} monitored provider status endpoints report incidents: ${impacted_list}"
+    fi
   else
-    impacted_list=""
-    while IFS='|' read -r name label group severity _; do
-      [ "$severity" = "ok" ] && continue
-      impacted_list="${impacted_list}${impacted_list:+, }${label} ${severity}"
-    done <"$PROBE_RESULTS_FILE"
-    summary_parts="${PROBE_IMPACTED_COUNT}/${PROBE_PROFILE_COUNT} targets impacted: ${impacted_list}"
+    if [ "$PROBE_IMPACTED_COUNT" -eq 0 ]; then
+      summary_parts="All ${PROBE_PROFILE_COUNT}/${PROBE_PROFILE_COUNT} probe targets healthy"
+    else
+      impacted_list=""
+      while IFS='|' read -r _name label _group severity _rest; do
+        [ "$severity" = "ok" ] && continue
+        impacted_list="${impacted_list}${impacted_list:+, }${label} ${severity}"
+      done <"$PROBE_RESULTS_FILE"
+      summary_parts="${PROBE_IMPACTED_COUNT}/${PROBE_PROFILE_COUNT} targets impacted: ${impacted_list}"
+    fi
   fi
 
   summary_parts="${summary_parts}, diagnosis: ${PROBE_DIAGNOSIS_LABEL}"
@@ -956,7 +1198,19 @@ build_event_payload() {
   summary_parts="${summary_parts}, HTTP ${PROBE_TOTAL_HTTP_BYTES} B"
   summary_parts="${summary_parts}, ICMP ${PROBE_TOTAL_PING_PACKETS} pkts"
 
-  body="Location: ${LOCATION}
+  if [ "$PROBE_SIGNAL_FAMILY" = "provider" ]; then
+    body="Location: ${LOCATION}
+Signal family: provider
+Overall severity: ${PROBE_OVERALL_SEVERITY}
+Scope: ${PROBE_SCOPE}
+Diagnosis: ${PROBE_DIAGNOSIS_LABEL}
+Diagnosis summary: ${PROBE_DIAGNOSIS_SUMMARY}
+Impacted provider endpoints: ${PROBE_IMPACTED_COUNT}/${PROBE_PROFILE_COUNT}
+Impacted groups: ${PROBE_IMPACTED_GROUPS:-none}
+Connectivity impacted targets this cycle: ${CONNECTIVITY_IMPACTED_COUNT}/${CONNECTIVITY_PROFILE_COUNT}
+Measured at: ${PROBE_MEASURED_AT}"
+  else
+    body="Location: ${LOCATION}
 Overall severity: ${PROBE_OVERALL_SEVERITY}
 Scope: ${PROBE_SCOPE}
 Diagnosis: ${PROBE_DIAGNOSIS_LABEL}
@@ -964,12 +1218,22 @@ Diagnosis summary: ${PROBE_DIAGNOSIS_SUMMARY}
 Impacted targets: ${PROBE_IMPACTED_COUNT}/${PROBE_PROFILE_COUNT}
 Impacted groups: ${PROBE_IMPACTED_GROUPS:-none}
 Measured at: ${PROBE_MEASURED_AT}"
+  fi
 
   group_stats_json="$(build_group_stats_json)"
   profiles_json="$(build_profiles_json)"
   source_url="$SOURCE_URL"
   if [ -z "$source_url" ]; then
-    IFS='|' read -r _source_name _source_label _source_group _source_severity _source_host source_url _source_rest <"$PROBE_RESULTS_FILE"
+    if [ "$PROBE_SIGNAL_FAMILY" = "provider" ]; then
+      while IFS='|' read -r _source_name _source_label _source_group _source_severity _source_host candidate_url _source_dns_host _source_packet_probe _source_dns_latency _source_http_latency _source_http_status _source_http_content_type _source_http_response_bytes _source_packet_loss _source_packet_packets_sent _source_packet_min _source_packet_avg _source_packet_max _source_packet_jitter _source_provider_indicator _source_provider_description source_provider_severity _source_dns_error _source_http_error _source_packet_error _source_provider_affects; do
+        [ -n "$source_provider_severity" ] || continue
+        source_url="$candidate_url"
+        break
+      done <"$PROBE_RESULTS_FILE"
+    fi
+    if [ -z "$source_url" ]; then
+      IFS='|' read -r _source_name _source_label _source_group _source_severity _source_host source_url _source_rest <"$PROBE_RESULTS_FILE"
+    fi
   fi
 
   metadata=$(
@@ -989,15 +1253,16 @@ Measured at: ${PROBE_MEASURED_AT}"
   "releaseChannel": $(json_quote "$RELEASE_CHANNEL"),
   "image": $(json_quote "$IMAGE"),
   "stateSchemaVersion": ${STATE_SCHEMA_VERSION},
+  "signalFamily": $(json_quote "$PROBE_SIGNAL_FAMILY"),
   "packetCount": ${PACKET_COUNT},
   "severity": $(json_quote "$PROBE_OVERALL_SEVERITY"),
-  "previousSeverity": $(json_quote "$STATE_LAST_SEVERITY"),
+  "previousSeverity": $(json_quote "$PROBE_PREVIOUS_SEVERITY"),
   "measuredAt": $(json_quote "$PROBE_MEASURED_AT"),
   "scope": $(json_quote "$PROBE_SCOPE"),
   "diagnosisCode": $(json_quote "$PROBE_DIAGNOSIS_CODE"),
   "diagnosisLabel": $(json_quote "$PROBE_DIAGNOSIS_LABEL"),
   "diagnosisSummary": $(json_quote "$PROBE_DIAGNOSIS_SUMMARY"),
-  "groupCount": 3,
+  "groupCount": ${PROBE_GROUP_COUNT},
   "impactedGroupsCsv": $(json_quote "$PROBE_IMPACTED_GROUPS"),
   "profileCount": ${PROBE_PROFILE_COUNT},
   "impactedProfileCount": ${PROBE_IMPACTED_COUNT},
@@ -1022,15 +1287,15 @@ EOF
   cat <<EOF
 {
   "eventType": $(json_quote "$PROBE_EVENT_TYPE"),
-  "topic": $(json_quote "${LOCATION} connectivity"),
-  "title": $(json_quote "Connectivity ${title_severity} at ${LOCATION}"),
+  "topic": $(json_quote "$( [ "$PROBE_SIGNAL_FAMILY" = "provider" ] && printf '%s provider status' "$LOCATION" || printf '%s connectivity' "$LOCATION" )"),
+  "title": $(json_quote "$( [ "$PROBE_SIGNAL_FAMILY" = "provider" ] && printf 'Provider status %s at %s' "$title_severity" "$LOCATION" || printf 'Connectivity %s at %s' "$title_severity" "$LOCATION" )"),
   "summary": $(json_quote "$summary_parts"),
   "body": $(json_quote "$body"),
   "sourceUrl": $(json_quote "$source_url"),
   "externalId": $(json_quote "${LOCATION}-${PROBE_EVENT_TYPE}-${PROBE_MEASURED_AT}"),
   "tags": [
     "network",
-    $( [ "$PROBE_EVENT_TYPE" = "net.connectivity.recovered" ] && printf '"recovered"' || json_quote "$PROBE_OVERALL_SEVERITY" )
+    $( case "$PROBE_EVENT_TYPE" in net.connectivity.recovered|net.provider.recovered) printf '"recovered"' ;; *) json_quote "$PROBE_OVERALL_SEVERITY" ;; esac )
   ],
   "metadata": $metadata
 }
@@ -1046,11 +1311,91 @@ publish_event() {
     "${BASE_URL}/api/bot/publish"
 }
 
+build_identity_hint_json() {
+  printf '{'
+  first=1
+  append_identity_field() {
+    key="$1"
+    value="$2"
+    [ -n "$value" ] || return 0
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    printf '%s:%s' "$(json_quote "$key")" "$(json_quote "$value")"
+  }
+  append_identity_number() {
+    key="$1"
+    value="$2"
+    [ -n "$value" ] || return 0
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    printf '%s:%s' "$(json_quote "$key")" "$value"
+  }
+  append_identity_field "countryCode" "${NETNODE_COUNTRY_CODE:-}"
+  append_identity_field "country" "${NETNODE_COUNTRY:-}"
+  append_identity_field "region" "${NETNODE_REGION:-}"
+  append_identity_field "city" "${NETNODE_CITY:-}"
+  append_identity_field "provider" "${NETNODE_PROVIDER:-}"
+  append_identity_number "asn" "${NETNODE_ASN:-}"
+  append_identity_field "networkType" "${NETNODE_NETWORK_TYPE:-}"
+  printf '}'
+}
+
+parse_update_response() {
+  printf '%s' "$1" | awk '
+    BEGIN {
+      update = "false";
+      latest = "";
+      min = "";
+      image = "";
+    }
+    {
+      text = $0;
+      if (match(text, /"updateAvailable"[[:space:]]*:[[:space:]]*(true|false)/)) {
+        chunk = substr(text, RSTART, RLENGTH);
+        sub(/^.*:[[:space:]]*/, "", chunk);
+        update = chunk;
+      }
+      if (match(text, /"latestVersion"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
+        chunk = substr(text, RSTART, RLENGTH);
+        sub(/^.*:[[:space:]]*"/, "", chunk);
+        sub(/"$/, "", chunk);
+        latest = chunk;
+      }
+      if (match(text, /"minSupportedVersion"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
+        chunk = substr(text, RSTART, RLENGTH);
+        sub(/^.*:[[:space:]]*"/, "", chunk);
+        sub(/"$/, "", chunk);
+        min = chunk;
+      }
+      if (match(text, /"image"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
+        chunk = substr(text, RSTART, RLENGTH);
+        sub(/^.*:[[:space:]]*"/, "", chunk);
+        sub(/"$/, "", chunk);
+        image = chunk;
+      }
+    }
+    END {
+      printf "%s|%s|%s|%s", update, latest, min, image;
+    }
+  '
+}
+
+log_update_notice() {
+  update_available="$1"
+  latest_version="$2"
+  min_supported_version="$3"
+  update_image="$4"
+  if [ "${update_available:-false}" = "true" ]; then
+    echo "[pushme-netnode] update available: current=${VERSION} latest=${latest_version:-unknown} min_supported=${min_supported_version:-unknown} image=${update_image:-unknown}" >&2
+  fi
+}
+
 report_startup() {
   [ -n "$PUSHME_API_KEY" ] || return 0
+  identity_hint_json="$(build_identity_hint_json)"
   payload=$(
     cat <<EOF
-{"nodeVersion":"$(json_escape "$VERSION")","releaseChannel":"$(json_escape "$RELEASE_CHANNEL")","image":"$(json_escape "$IMAGE")","stateSchemaVersion":${STATE_SCHEMA_VERSION}}
+{"nodeVersion":"$(json_escape "$VERSION")","releaseChannel":"$(json_escape "$RELEASE_CHANNEL")","image":"$(json_escape "$IMAGE")","stateSchemaVersion":${STATE_SCHEMA_VERSION},"location":"$(json_escape "$LOCATION")","intervalMs":${INTERVAL_MS},"identityHint":${identity_hint_json}}
 EOF
   )
   response="$(curl -fsS \
@@ -1059,54 +1404,35 @@ EOF
     -d "$payload" \
     "${BASE_URL}/api/bot/netnode/startup" || true)"
   [ -n "$response" ] || return 0
-  parsed_startup="$(
-    printf '%s' "$response" | awk '
-      BEGIN {
-        update = "false";
-        latest = "";
-        min = "";
-        image = "";
-      }
-      {
-        text = $0;
-        if (match(text, /"updateAvailable"[[:space:]]*:[[:space:]]*(true|false)/)) {
-          chunk = substr(text, RSTART, RLENGTH);
-          sub(/^.*:[[:space:]]*/, "", chunk);
-          update = chunk;
-        }
-        if (match(text, /"latestVersion"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
-          chunk = substr(text, RSTART, RLENGTH);
-          sub(/^.*:[[:space:]]*"/, "", chunk);
-          sub(/"$/, "", chunk);
-          latest = chunk;
-        }
-        if (match(text, /"minSupportedVersion"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
-          chunk = substr(text, RSTART, RLENGTH);
-          sub(/^.*:[[:space:]]*"/, "", chunk);
-          sub(/"$/, "", chunk);
-          min = chunk;
-        }
-        if (match(text, /"image"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
-          chunk = substr(text, RSTART, RLENGTH);
-          sub(/^.*:[[:space:]]*"/, "", chunk);
-          sub(/"$/, "", chunk);
-          image = chunk;
-        }
-      }
-      END {
-        printf "%s|%s|%s|%s", update, latest, min, image;
-      }
-    '
-  )"
+  parsed_startup="$(parse_update_response "$response")"
   IFS='|' read -r update_available latest_version min_supported_version update_image <<EOF
 $parsed_startup
 EOF
   printf '{\n  "startupReported": true,\n  "nodeVersion": %s,\n  "releaseChannel": %s,\n  "image": %s,\n  "stateSchemaVersion": %s,\n  "updateAvailable": %s,\n  "latestVersion": %s,\n  "minSupportedVersion": %s,\n  "updateImage": %s\n}\n' \
     "$(json_quote "$VERSION")" "$(json_quote "$RELEASE_CHANNEL")" "$(json_quote "$IMAGE")" "$STATE_SCHEMA_VERSION" \
     "${update_available:-false}" "$(json_quote "$latest_version")" "$(json_quote "$min_supported_version")" "$(json_quote "$update_image")"
-  if [ "${update_available:-false}" = "true" ]; then
-    echo "[pushme-netnode] update available: current=${VERSION} latest=${latest_version:-unknown} min_supported=${min_supported_version:-unknown} image=${update_image:-unknown}" >&2
-  fi
+  log_update_notice "${update_available:-false}" "$latest_version" "$min_supported_version" "$update_image"
+}
+
+report_heartbeat() {
+  [ -n "$PUSHME_API_KEY" ] || return 0
+  identity_hint_json="$(build_identity_hint_json)"
+  payload=$(
+    cat <<EOF
+{"nodeVersion":"$(json_escape "$VERSION")","releaseChannel":"$(json_escape "$RELEASE_CHANNEL")","image":"$(json_escape "$IMAGE")","stateSchemaVersion":${STATE_SCHEMA_VERSION},"location":"$(json_escape "$LOCATION")","intervalMs":${INTERVAL_MS},"identityHint":${identity_hint_json}}
+EOF
+  )
+  response="$(curl -fsS \
+    -H 'content-type: application/json' \
+    -H "authorization: Bearer ${PUSHME_API_KEY}" \
+    -d "$payload" \
+    "${BASE_URL}/api/bot/netnode/heartbeat" || true)"
+  [ -n "$response" ] || return 0
+  parsed_heartbeat="$(parse_update_response "$response")"
+  IFS='|' read -r update_available latest_version min_supported_version update_image <<EOF
+$parsed_heartbeat
+EOF
+  log_update_notice "${update_available:-false}" "$latest_version" "$min_supported_version" "$update_image"
 }
 
 run_once() {
@@ -1114,37 +1440,63 @@ run_once() {
   state_load
   debug_log "run_once: probing"
   run_probe_cycle
+  debug_log "run_once: heartbeat"
+  report_heartbeat || true
   debug_log "run_once: deciding publication"
-  decide_publication
+  decide_connectivity_publication
+  decide_provider_publication
 
-  if [ "$DECISION_PUBLISH" -ne 1 ]; then
-    debug_log "run_once: skip path (${DECISION_REASON})"
-    printf '{\n  "severity": %s,\n  "previousSeverity": %s,\n  "fingerprint": %s,\n  "publicationReason": %s,\n  "skipped": true,\n  "reason": %s\n}\n' \
-      "$(json_quote "$PROBE_OVERALL_SEVERITY")" "$(json_quote "$STATE_LAST_SEVERITY")" "$(json_quote "$PROBE_FINGERPRINT")" "$(json_quote "$DECISION_REASON")" "$(json_quote "$DECISION_REASON")"
-    state_save
-    rm -f "$PROBE_RESULTS_FILE"
-    return
+  published_any=0
+
+  if [ "$CONNECTIVITY_DECISION_PUBLISH" -eq 1 ]; then
+    select_probe_family connectivity
+    debug_log "run_once: building connectivity payload"
+    payload="$(build_event_payload)"
+    if [ "$DRY_RUN" -eq 1 ] || [ -z "$PUSHME_API_KEY" ]; then
+      debug_log "run_once: dry-run connectivity"
+      printf '%s\n' "$payload"
+    else
+      debug_log "run_once: publishing connectivity event"
+      publish_event "$payload"
+    fi
+    CONNECTIVITY_LAST_SEVERITY="$PROBE_OVERALL_SEVERITY"
+    CONNECTIVITY_LAST_FINGERPRINT="$PROBE_FINGERPRINT"
+    CONNECTIVITY_LAST_PUBLISHED_AT="$PROBE_MEASURED_AT"
+    CONNECTIVITY_PENDING_FINGERPRINT=""
+    CONNECTIVITY_PENDING_COUNT="0"
+    CONNECTIVITY_PENDING_SEVERITY=""
+    published_any=1
   fi
 
-  debug_log "run_once: building payload"
-  payload="$(build_event_payload)"
-
-  if [ "$DRY_RUN" -eq 1 ] || [ -z "$PUSHME_API_KEY" ]; then
-    debug_log "run_once: dry-run or no API key"
-    printf '%s\n' "$payload"
-  else
-    debug_log "run_once: publishing event"
-    publish_event "$payload"
+  if [ "$PROVIDER_DECISION_PUBLISH" -eq 1 ]; then
+    select_probe_family provider
+    debug_log "run_once: building provider payload"
+    payload="$(build_event_payload)"
+    if [ "$DRY_RUN" -eq 1 ] || [ -z "$PUSHME_API_KEY" ]; then
+      debug_log "run_once: dry-run provider"
+      printf '%s\n' "$payload"
+    else
+      debug_log "run_once: publishing provider event"
+      publish_event "$payload"
+    fi
+    PROVIDER_LAST_SEVERITY="$PROBE_OVERALL_SEVERITY"
+    PROVIDER_LAST_FINGERPRINT="$PROBE_FINGERPRINT"
+    PROVIDER_LAST_PUBLISHED_AT="$PROBE_MEASURED_AT"
+    PROVIDER_PENDING_FINGERPRINT=""
+    PROVIDER_PENDING_COUNT="0"
+    PROVIDER_PENDING_SEVERITY=""
+    published_any=1
   fi
 
-  STATE_LAST_SEVERITY="$PROBE_OVERALL_SEVERITY"
-  STATE_LAST_FINGERPRINT="$PROBE_FINGERPRINT"
-  STATE_LAST_PUBLISHED_AT="$PROBE_MEASURED_AT"
-  STATE_PENDING_FINGERPRINT=""
-  STATE_PENDING_COUNT="0"
-  STATE_PENDING_SEVERITY=""
+  if [ "$published_any" -ne 1 ]; then
+    debug_log "run_once: skip path"
+    printf '{\n  "connectivity": {"severity": %s, "previousSeverity": %s, "fingerprint": %s, "publicationReason": %s, "skipped": %s, "reason": %s},\n  "provider": {"severity": %s, "previousSeverity": %s, "fingerprint": %s, "publicationReason": %s, "skipped": %s, "reason": %s},\n  "skipped": true\n}\n' \
+      "$(json_quote "$CONNECTIVITY_OVERALL_SEVERITY")" "$(json_quote "$CONNECTIVITY_LAST_SEVERITY")" "$(json_quote "$CONNECTIVITY_FINGERPRINT")" "$(json_quote "$CONNECTIVITY_DECISION_REASON")" "$(bool_json 1)" "$(json_quote "$CONNECTIVITY_DECISION_REASON")" \
+      "$(json_quote "$PROVIDER_OVERALL_SEVERITY")" "$(json_quote "$PROVIDER_LAST_SEVERITY")" "$(json_quote "$PROVIDER_FINGERPRINT")" "$(json_quote "$PROVIDER_DECISION_REASON")" "$(bool_json 1)" "$(json_quote "$PROVIDER_DECISION_REASON")"
+  fi
+
   state_save
-  rm -f "$PROBE_RESULTS_FILE"
+  rm -f "$RESULTS_FILE"
 }
 
 sleep_interval() {

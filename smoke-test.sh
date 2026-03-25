@@ -68,7 +68,8 @@ status_json=''
 status_attempt=0
 while [ "$status_attempt" -lt 5 ]; do
   status_json="$(curl -fsS -H "authorization: Bearer ${PUSHME_API_KEY}" "${base_url}/api/bot/netnode/status")"
-  if printf '%s' "$status_json" | jq -e '.runtime.nodeVersion | length > 0' >/dev/null &&
+if printf '%s' "$status_json" | jq -e '.runtime.nodeVersion | length > 0' >/dev/null &&
+    printf '%s' "$status_json" | jq -e '.runtime.lastSeenAt != null and .runtime.onlineNow == true' >/dev/null &&
     printf '%s' "$status_json" | jq -e '.recentNodeEvents | length >= 1' >/dev/null; then
     break
   fi
@@ -78,6 +79,11 @@ done
 
 if ! printf '%s' "$status_json" | jq -e '.runtime.nodeVersion | length > 0' >/dev/null; then
   echo "[pushme-netnode smoke-test] status payload missing runtime nodeVersion" >&2
+  printf '%s\n' "$status_json" >&2
+  exit 1
+fi
+if ! printf '%s' "$status_json" | jq -e '.runtime.lastSeenAt != null and .runtime.onlineNow == true' >/dev/null; then
+  echo "[pushme-netnode smoke-test] status payload missing live heartbeat state" >&2
   printf '%s\n' "$status_json" >&2
   exit 1
 fi
@@ -99,7 +105,7 @@ docker run --rm \
   -v "${data_volume}:/data" \
   "$image_tag" sh ./netnode.sh --once >/tmp/pushme-netnode-smoke-second.json
 
-jq -se 'last | (.skipped == true or ((.eventType // "") | startswith("net.connectivity.")))' /tmp/pushme-netnode-smoke-second.json >/dev/null
+jq -se 'last | (.skipped == true or ((.eventType // "") | startswith("net.")))' /tmp/pushme-netnode-smoke-second.json >/dev/null
 
 printf '{\n'
 printf '  "image": "%s",\n' "$image_tag"

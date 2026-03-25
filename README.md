@@ -38,11 +38,14 @@ NETNODE_LOCATION=test-node NETNODE_PUBLISH_MODE=changes sh ./netnode.sh --once -
 - default cadence: 60 seconds
 - default ICMP packets per packet-enabled target: 4
 - published event types:
-  - `net.connectivity.ok`
   - `net.connectivity.degraded`
   - `net.connectivity.down`
   - `net.connectivity.recovered`
+  - `net.provider.degraded`
+  - `net.provider.down`
+  - `net.provider.recovered`
 - startup endpoint: `POST /api/bot/netnode/startup`
+- heartbeat endpoint: `POST /api/bot/netnode/heartbeat`
 - publish endpoint: `POST /api/bot/publish`
 - status endpoint: `GET /api/bot/netnode/status`
 - state path: `/data/netnode-state.tsv`
@@ -52,6 +55,10 @@ NETNODE_LOCATION=test-node NETNODE_PUBLISH_MODE=changes sh ./netnode.sh --once -
 
 - runtime is `sh` + `curl` + `getent/nslookup` + `ping`
 - normal web targets prefer `HEAD`; provider-status endpoints fetch bodies
+- server-facing liveness uses a heartbeat every probe loop; payouts and live map
+  status do not depend only on incident publishes
+- provider-reported incidents are emitted separately from direct connectivity
+  incidents so official status pages do not masquerade as broken internet paths
 - the full event payload is only assembled when a publish is required
 - env/state files are strict tab-separated key/value files, not sourced as shell
   code

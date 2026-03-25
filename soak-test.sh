@@ -94,7 +94,8 @@ status_attempt=0
 while [ "$status_attempt" -lt 12 ]; do
   status_json="$(curl -fsS -H "authorization: Bearer ${pushme_api_key}" "${base_url}/api/bot/netnode/status")"
   if printf '%s' "$status_json" | jq -e '.runtime.nodeVersion | length > 0' >/dev/null &&
-    printf '%s' "$status_json" | jq -e '.recentNodeEvents | length >= 1' >/dev/null; then
+    printf '%s' "$status_json" | jq -e '.runtime.lastSeenAt != null and .runtime.onlineNow == true' >/dev/null &&
+    printf '%s' "$status_json" | jq -e '.recentNodeEvents | type == "array"' >/dev/null; then
     break
   fi
   status_attempt=$((status_attempt + 1))
@@ -102,8 +103,9 @@ while [ "$status_attempt" -lt 12 ]; do
 done
 
 if ! printf '%s' "$status_json" | jq -e '.runtime.nodeVersion | length > 0' >/dev/null ||
-  ! printf '%s' "$status_json" | jq -e '.recentNodeEvents | length >= 1' >/dev/null; then
-  echo "[pushme-netnode soak-test] status endpoint never showed a live runtime with recent events" >&2
+  ! printf '%s' "$status_json" | jq -e '.runtime.lastSeenAt != null and .runtime.onlineNow == true' >/dev/null ||
+  ! printf '%s' "$status_json" | jq -e '.recentNodeEvents | type == "array"' >/dev/null; then
+  echo "[pushme-netnode soak-test] status endpoint never showed a live runtime with heartbeat state" >&2
   printf '%s\n' "$status_json" >&2
   docker logs "$container_name" >&2 || true
   exit 1
