@@ -11,7 +11,7 @@ website_url="${PUSHME_SETUP_WEBSITE_URL:-https://pushme.site/netnode}"
 tab="$(printf '\t')"
 
 case "$base_url" in
-  https://*|http://127.0.0.1:*|http://localhost:*|http://[::1]:*)
+  https://*|http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*)
     ;;
   *)
     echo "[pushme-netnode] unsupported PUSHME_BOT_URL: ${base_url}" >&2

@@ -86,7 +86,7 @@ validate_base_url() {
     https://*)
       return 0
       ;;
-    http://127.0.0.1:*|http://localhost:*|http://[::1]:*)
+    http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*)
       return 0
       ;;
     *)
@@ -384,13 +384,27 @@ EOF
 
 time_total_to_ms() {
   value="${1:-0}"
-  seconds="${value%%.*}"
-  fraction="${value#*.}"
-  if [ "$fraction" = "$value" ]; then
-    fraction="0"
-  fi
-  fraction="$(printf '%.3s' "${fraction}000")"
-  printf '%s\n' "$((10#${seconds:-0} * 1000 + 10#${fraction:-0}))"
+  awk -v value="$value" '
+    BEGIN {
+      if (value == "") {
+        value = "0";
+      }
+
+      split(value, parts, ".");
+      seconds = parts[1];
+      fraction = (length(parts) > 1 ? parts[2] : "0");
+
+      if (seconds !~ /^[0-9]+$/) {
+        seconds = 0;
+      }
+      if (fraction !~ /^[0-9]+$/) {
+        fraction = 0;
+      }
+
+      fraction = substr(fraction "000", 1, 3);
+      printf "%d\n", (seconds + 0) * 1000 + (fraction + 0);
+    }
+  '
 }
 
 measure_http() {
