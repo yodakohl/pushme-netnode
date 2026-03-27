@@ -19,6 +19,8 @@ ONCE=0
 DRY_RUN=0
 TAB="$(printf '\t')"
 DEBUG="${NETNODE_DEBUG:-0}"
+CONTROL_PLANE_MAX_TIME="${NETNODE_CONTROL_PLANE_MAX_TIME:-15}"
+CONTROL_PLANE_CONNECT_TIMEOUT="${NETNODE_CONTROL_PLANE_CONNECT_TIMEOUT:-5}"
 
 for arg in "$@"; do
   case "$arg" in
@@ -123,6 +125,20 @@ require_command mktemp
 require_command ping
 require_command date
 detect_dns_tool
+
+path_dir() {
+  case "$1" in
+    */*) printf '%s\n' "${1%/*}" ;;
+    *) printf '.\n' ;;
+  esac
+}
+
+control_plane_curl() {
+  curl -fsS \
+    --max-time "$CONTROL_PLANE_MAX_TIME" \
+    --connect-timeout "$CONTROL_PLANE_CONNECT_TIMEOUT" \
+    "$@"
+}
 
 read_ms() {
   if [ -r /proc/uptime ]; then
@@ -230,7 +246,9 @@ state_load() {
 }
 
 state_save() {
-  tmp_state="$(mktemp)"
+  state_dir="$(path_dir "$STATE_FILE")"
+  mkdir -p "$state_dir"
+  tmp_state="$(mktemp "${state_dir}/.netnode-state.XXXXXX")"
   chmod 600 "$tmp_state"
   {
     printf 'STATE_LAST_SEVERITY%s%s\n' "$TAB" "$CONNECTIVITY_LAST_SEVERITY"
@@ -1093,43 +1111,126 @@ select_probe_family() {
 }
 
 build_group_stats_json() {
+  group_stats_row() {
+    target_group="$1"
+    awk -F '|' -v target="$target_group" '
+      function append_csv(list, value) {
+        return list == "" ? value : list "," value
+      }
+      BEGIN {
+        count = 0;
+        impacted = 0;
+        down = 0;
+        degraded = 0;
+        provider_reported = 0;
+        dns_sum = 0;
+        dns_count = 0;
+        http_sum = 0;
+        http_count = 0;
+        ping_sum = 0;
+        ping_count = 0;
+        jitter_sum = 0;
+        jitter_count = 0;
+        max_jitter = "";
+        max_loss = 0;
+        impacted_profiles = "";
+      }
+      $3 == target {
+        count += 1;
+
+        if ($4 == "down") {
+          impacted += 1;
+          down += 1;
+          impacted_profiles = append_csv(impacted_profiles, $1);
+        } else if ($4 == "degraded") {
+          impacted += 1;
+          degraded += 1;
+          impacted_profiles = append_csv(impacted_profiles, $1);
+        }
+
+        if ($22 != "") {
+          provider_reported += 1;
+        }
+
+        if ($9 != "") {
+          dns_sum += $9;
+          dns_count += 1;
+        }
+        if ($10 != "") {
+          http_sum += $10;
+          http_count += 1;
+        }
+        if ($17 != "") {
+          value = int($17 + 0);
+          ping_sum += value;
+          ping_count += 1;
+        }
+        if ($19 != "") {
+          value = int($19 + 0);
+          jitter_sum += value;
+          jitter_count += 1;
+          if (max_jitter == "" || value > max_jitter) {
+            max_jitter = value;
+          }
+        }
+        if ($14 != "") {
+          value = int($14 + 0);
+          if (value > max_loss) {
+            max_loss = value;
+          }
+        }
+      }
+      END {
+        if (count == 0) {
+          exit 1;
+        }
+        avg_dns = "";
+        avg_http = "";
+        avg_ping = "";
+        avg_jitter = "";
+        if (dns_count > 0) {
+          avg_dns = int(dns_sum / dns_count);
+        }
+        if (http_count > 0) {
+          avg_http = int(http_sum / http_count);
+        }
+        if (ping_count > 0) {
+          avg_ping = int(ping_sum / ping_count);
+        }
+        if (jitter_count > 0) {
+          avg_jitter = int(jitter_sum / jitter_count);
+        }
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
+          count, impacted, down, degraded, provider_reported,
+          avg_dns, avg_http, avg_ping, avg_jitter, max_jitter, max_loss, impacted_profiles;
+      }
+    ' "$PROBE_RESULTS_FILE"
+  }
+
   printf '['
   first=1
   for group in resolver web ai; do
-    case "$group" in
-      resolver)
-        count="$PROBE_RESOLVER_COUNT"
-        impacted="$PROBE_RESOLVER_IMPACTED"
-        provider_reported="$PROBE_RESOLVER_PROVIDER_REPORTED"
-        ;;
-      web)
-        count="$PROBE_WEB_COUNT"
-        impacted="$PROBE_WEB_IMPACTED"
-        provider_reported="$PROBE_WEB_PROVIDER_REPORTED"
-        ;;
-      ai)
-        count="$PROBE_AI_COUNT"
-        impacted="$PROBE_AI_IMPACTED"
-        provider_reported="$PROBE_AI_PROVIDER_REPORTED"
-        ;;
-    esac
-    [ "$count" -gt 0 ] || continue
+    stats_row="$(group_stats_row "$group" 2>/dev/null || true)"
+    [ -n "$stats_row" ] || continue
+    IFS="$TAB" read -r count impacted down degraded provider_reported avg_dns avg_http avg_ping avg_jitter max_jitter max_loss impacted_profiles <<EOF
+$stats_row
+EOF
     [ "$first" -eq 1 ] || printf ','
     first=0
     printf '{'
     printf '"group":%s,' "$(json_quote "$group")"
     printf '"profileCount":%s,' "$count"
     printf '"impactedCount":%s,' "$impacted"
-    printf '"downCount":0,'
-    printf '"degradedCount":%s,' "$impacted"
+    printf '"downCount":%s,' "$down"
+    printf '"degradedCount":%s,' "$degraded"
     printf '"providerReportedCount":%s,' "$provider_reported"
-    if [ -n "$PROBE_AVG_DNS" ]; then printf '"avgDnsLatencyMs":%s,' "$PROBE_AVG_DNS"; else printf '"avgDnsLatencyMs":null,'; fi
-    if [ -n "$PROBE_AVG_HTTP" ]; then printf '"avgHttpLatencyMs":%s,' "$PROBE_AVG_HTTP"; else printf '"avgHttpLatencyMs":null,'; fi
-    if [ -n "$PROBE_AVG_PING" ]; then printf '"avgPingLatencyMs":%s,' "$PROBE_AVG_PING"; else printf '"avgPingLatencyMs":null,'; fi
-    if [ -n "$PROBE_AVG_JITTER" ]; then printf '"avgJitterMs":%s,' "$PROBE_AVG_JITTER"; else printf '"avgJitterMs":null,'; fi
-    printf '"maxPacketLossPct":%s,' "$PROBE_MAX_PACKET_LOSS"
-    printf '"maxJitterMs":%s,' "${PROBE_AVG_JITTER:-0}"
-    printf '"impactedProfiles":%s' "$(json_quote "$PROBE_IMPACTED_PROFILES")"
+    if [ -n "$avg_dns" ]; then printf '"avgDnsLatencyMs":%s,' "$avg_dns"; else printf '"avgDnsLatencyMs":null,'; fi
+    if [ -n "$avg_http" ]; then printf '"avgHttpLatencyMs":%s,' "$avg_http"; else printf '"avgHttpLatencyMs":null,'; fi
+    if [ -n "$avg_ping" ]; then printf '"avgPingLatencyMs":%s,' "$avg_ping"; else printf '"avgPingLatencyMs":null,'; fi
+    if [ -n "$avg_jitter" ]; then printf '"avgJitterMs":%s,' "$avg_jitter"; else printf '"avgJitterMs":null,'; fi
+    printf '"maxPacketLossPct":%s,' "${max_loss:-0}"
+    if [ -n "$max_jitter" ]; then printf '"maxJitterMs":%s,' "$max_jitter"; else printf '"maxJitterMs":null,'; fi
+    printf '"impactedProfiles":%s' "$(json_quote "$impacted_profiles")"
     printf '}'
   done
   printf ']'
@@ -1318,7 +1419,7 @@ EOF
 
 publish_event() {
   payload="$1"
-  curl -fsS \
+  control_plane_curl \
     -H 'content-type: application/json' \
     -H "authorization: Bearer ${PUSHME_API_KEY}" \
     -d "$payload" \
@@ -1412,7 +1513,7 @@ report_startup() {
 {"nodeVersion":"$(json_escape "$VERSION")","releaseChannel":"$(json_escape "$RELEASE_CHANNEL")","image":"$(json_escape "$IMAGE")","stateSchemaVersion":${STATE_SCHEMA_VERSION},"location":"$(json_escape "$LOCATION")","intervalMs":${INTERVAL_MS},"identityHint":${identity_hint_json}}
 EOF
   )
-  response="$(curl -fsS \
+  response="$(control_plane_curl \
     -H 'content-type: application/json' \
     -H "authorization: Bearer ${PUSHME_API_KEY}" \
     -d "$payload" \
@@ -1436,7 +1537,7 @@ report_heartbeat() {
 {"nodeVersion":"$(json_escape "$VERSION")","releaseChannel":"$(json_escape "$RELEASE_CHANNEL")","image":"$(json_escape "$IMAGE")","stateSchemaVersion":${STATE_SCHEMA_VERSION},"location":"$(json_escape "$LOCATION")","intervalMs":${INTERVAL_MS},"identityHint":${identity_hint_json}}
 EOF
   )
-  response="$(curl -fsS \
+  response="$(control_plane_curl \
     -H 'content-type: application/json' \
     -H "authorization: Bearer ${PUSHME_API_KEY}" \
     -d "$payload" \

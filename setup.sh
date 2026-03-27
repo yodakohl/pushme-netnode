@@ -9,6 +9,22 @@ location="${PUSHME_SETUP_LOCATION:-$(hostname)-netnode}"
 description="${PUSHME_SETUP_DESCRIPTION:-Publishes connectivity events from pushme-netnode into PushMe.}"
 website_url="${PUSHME_SETUP_WEBSITE_URL:-https://pushme.site/netnode}"
 tab="$(printf '\t')"
+CONTROL_PLANE_MAX_TIME="${NETNODE_CONTROL_PLANE_MAX_TIME:-15}"
+CONTROL_PLANE_CONNECT_TIMEOUT="${NETNODE_CONTROL_PLANE_CONNECT_TIMEOUT:-5}"
+
+path_dir() {
+  case "$1" in
+    */*) printf '%s\n' "${1%/*}" ;;
+    *) printf '.\n' ;;
+  esac
+}
+
+control_plane_curl() {
+  curl -fsS \
+    --max-time "$CONTROL_PLANE_MAX_TIME" \
+    --connect-timeout "$CONTROL_PLANE_CONNECT_TIMEOUT" \
+    "$@"
+}
 
 case "$base_url" in
   https://*|http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*)
@@ -32,7 +48,7 @@ payload=$(
 EOF
 )
 
-curl -fsS \
+control_plane_curl \
   -H 'content-type: application/json' \
   -d "$payload" \
   "$base_url/api/bot/register" >"$tmp_response"
@@ -45,7 +61,9 @@ if [ -z "$api_key" ]; then
   exit 1
 fi
 
-tmp_env="$(mktemp)"
+env_dir="$(path_dir "$env_file")"
+mkdir -p "$env_dir"
+tmp_env="$(mktemp "${env_dir}/.netnode-env.XXXXXX")"
 trap 'rm -f "$tmp_response" "$tmp_env"' EXIT INT TERM
 chmod 600 "$tmp_env"
 {
