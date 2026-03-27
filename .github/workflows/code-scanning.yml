@@ -23,7 +23,7 @@ jobs:
       security-events: write
     steps:
       - name: Check out repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run ShellCheck
         run: |
@@ -115,7 +115,7 @@ jobs:
       security-events: write
     steps:
       - name: Check out repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run Hadolint
         run: |
