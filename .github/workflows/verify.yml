@@ -1,0 +1,45 @@
+name: verify
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v6
+
+      - name: Validate GitHub Actions workflows
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest
+
+      - name: Check shell syntax
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work alpine:3.23 sh -n \
+            install.sh \
+            setup.sh \
+            netnode.sh \
+            docker-entrypoint.sh \
+            smoke-test.sh \
+            soak-test.sh \
+            verify.sh \
+            uninstall.sh \
+            test/testlib.sh
+
+      - name: Generate verification report
+        run: |
+          ./verify.sh > /tmp/verify.json
+          jq -e '.sourceMatchesImage == true and (.defaultProfiles | length) >= 1' /tmp/verify.json >/dev/null
+          cat /tmp/verify.json
+
+      - name: Run hermetic smoke test
+        run: ./smoke-test.sh

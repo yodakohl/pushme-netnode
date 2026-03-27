@@ -11,12 +11,29 @@ website_url="${PUSHME_SETUP_WEBSITE_URL:-https://pushme.site/netnode}"
 tab="$(printf '\t')"
 CONTROL_PLANE_MAX_TIME="${NETNODE_CONTROL_PLANE_MAX_TIME:-15}"
 CONTROL_PLANE_CONNECT_TIMEOUT="${NETNODE_CONTROL_PLANE_CONNECT_TIMEOUT:-5}"
+ALLOW_HTTP_BASE_URLS="${NETNODE_ALLOW_HTTP_BASE_URLS:-}"
 
 path_dir() {
   case "$1" in
     */*) printf '%s\n' "${1%/*}" ;;
     *) printf '.\n' ;;
   esac
+}
+
+base_url_is_allowed() {
+  case "$base_url" in
+    https://*|http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*)
+      return 0
+      ;;
+  esac
+
+  case ",${ALLOW_HTTP_BASE_URLS}," in
+    *,"${base_url}",*)
+      return 0
+      ;;
+  esac
+
+  return 1
 }
 
 control_plane_curl() {
@@ -26,14 +43,10 @@ control_plane_curl() {
     "$@"
 }
 
-case "$base_url" in
-  https://*|http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*)
-    ;;
-  *)
-    echo "[pushme-netnode] unsupported PUSHME_BOT_URL: ${base_url}" >&2
-    exit 1
-    ;;
-esac
+if ! base_url_is_allowed; then
+  echo "[pushme-netnode] unsupported PUSHME_BOT_URL: ${base_url}" >&2
+  exit 1
+fi
 
 if [ -n "${PUSHME_API_KEY:-}" ]; then
   exit 0

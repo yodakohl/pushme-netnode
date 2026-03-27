@@ -108,34 +108,44 @@ That report includes:
 - source file hashes
 - image file hashes
 - whether source and built image match
+- published `stable`, `edge`, and version-tag manifest platforms
 - installed packages from the Dockerfile
 - default probe set
 - required runtime restrictions
 
 ## Test harness
 
-Production-connected smoke test:
+Hermetic smoke test:
 
 ```sh
-PUSHME_REPO_ROOT=/home/PushMe ./smoke-test.sh
+./smoke-test.sh
 ```
 
-Longer soak test under the hardened container profile:
+Hermetic soak test under the hardened container profile:
 
 ```sh
-PUSHME_REPO_ROOT=/home/PushMe SOAK_DURATION_SECONDS=600 ./soak-test.sh
+SOAK_DURATION_SECONDS=600 ./soak-test.sh
 ```
 
-Both tests expect Docker, `curl`, `jq`, and a way to resolve `DATABASE_URL`
-through either:
+To target a real PushMe deployment instead of the local mock control plane:
 
-- `DATABASE_URL` already being set, or
-- `PUSHME_REPO_ROOT/backend/.env` existing
+```sh
+PUSHME_BOT_URL=https://pushme.site PUSHME_REPO_ROOT=/home/PushMe ./smoke-test.sh
+```
+
+Both tests expect Docker, `curl`, and `jq`.
+
+When `PUSHME_BOT_URL` points at a real PushMe deployment and you want automatic
+org cleanup after the test, they also use `DATABASE_URL` from either:
+
+- `DATABASE_URL` already being set
+- `PUSHME_REPO_ROOT/backend/.env`
 
 ## Supported configuration
 
 - `PUSHME_API_KEY`
 - `PUSHME_BOT_URL`
+- `NETNODE_ALLOW_HTTP_BASE_URLS`
 - `PUSHME_AUTO_SETUP=1`
 - `PUSHME_SETUP_ORG_NAME`
 - `PUSHME_SETUP_LOCATION`
@@ -149,6 +159,7 @@ through either:
 - `NETNODE_IMAGE_REPOSITORY`
 - `NETNODE_IMAGE`
 - `NETNODE_VERSION`
+- `NETNODE_VERSION_FILE`
 - `NETNODE_STATE_FILE`
 - `NETNODE_ENV_FILE`
 - `NETNODE_SOURCE_URL`
@@ -160,6 +171,10 @@ through either:
 - `NETNODE_PROVIDER_DOMAIN`
 - `NETNODE_ASN`
 - `NETNODE_NETWORK_TYPE`
+
+`NETNODE_ALLOW_HTTP_BASE_URLS` is a comma-separated exact allowlist for additional
+non-HTTPS control-plane base URLs. It is intended for hermetic local tests; real
+deployments should keep using `https://` endpoints.
 
 ## Current limits
 

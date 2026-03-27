@@ -2,7 +2,10 @@
 set -eu
 umask 077
 
-VERSION="${NETNODE_VERSION:-0.3.2}"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname "$0")" && pwd)"
+VERSION_FILE="${NETNODE_VERSION_FILE:-${SCRIPT_DIR}/VERSION}"
+DEFAULT_VERSION="$(sed -n '1p' "$VERSION_FILE" 2>/dev/null || true)"
+VERSION="${NETNODE_VERSION:-${DEFAULT_VERSION:-0.3.2}}"
 BASE_URL="${PUSHME_BOT_URL:-https://pushme.site}"
 STATE_FILE="${NETNODE_STATE_FILE:-./netnode-state.tsv}"
 ENV_FILE="${NETNODE_ENV_FILE:-./netnode.env}"
@@ -21,6 +24,7 @@ TAB="$(printf '\t')"
 DEBUG="${NETNODE_DEBUG:-0}"
 CONTROL_PLANE_MAX_TIME="${NETNODE_CONTROL_PLANE_MAX_TIME:-15}"
 CONTROL_PLANE_CONNECT_TIMEOUT="${NETNODE_CONTROL_PLANE_CONNECT_TIMEOUT:-5}"
+ALLOW_HTTP_BASE_URLS="${NETNODE_ALLOW_HTTP_BASE_URLS:-}"
 
 for arg in "$@"; do
   case "$arg" in
@@ -91,11 +95,16 @@ validate_base_url() {
     http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*)
       return 0
       ;;
-    *)
-      echo "[pushme-netnode] unsupported PUSHME_BOT_URL: ${BASE_URL}" >&2
-      exit 1
+  esac
+
+  case ",${ALLOW_HTTP_BASE_URLS}," in
+    *,"${BASE_URL}",*)
+      return 0
       ;;
   esac
+
+  echo "[pushme-netnode] unsupported PUSHME_BOT_URL: ${BASE_URL}" >&2
+  exit 1
 }
 
 detect_dns_tool() {
@@ -878,13 +887,10 @@ EOF
   TOTAL_HTTP_BYTES="$total_http_bytes"
   TOTAL_PING_PACKETS="$total_ping_packets"
   PACKET_PROBE_TARGET_COUNT="$packet_probe_target_count"
-  RESOLVER_COUNT="$resolver_count"
   RESOLVER_IMPACTED="$resolver_impacted"
   RESOLVER_PROVIDER_REPORTED="$resolver_provider_reported"
-  WEB_COUNT="$web_count"
   WEB_IMPACTED="$web_impacted"
   WEB_PROVIDER_REPORTED="$web_provider_reported"
-  AI_COUNT="$ai_count"
   AI_IMPACTED="$ai_impacted"
   AI_PROVIDER_REPORTED="$ai_provider_reported"
 
@@ -897,9 +903,6 @@ EOF
   CONNECTIVITY_DIAGNOSIS_SUMMARY="$diagnosis_summary"
   CONNECTIVITY_PROFILE_COUNT="$profile_count"
   CONNECTIVITY_IMPACTED_COUNT="$impacted_count"
-  CONNECTIVITY_DOWN_COUNT="$down_count"
-  CONNECTIVITY_DEGRADED_COUNT="$degraded_count"
-  CONNECTIVITY_OK_COUNT="$ok_count"
   CONNECTIVITY_IMPACTED_GROUPS="$impacted_groups"
   CONNECTIVITY_IMPACTED_PROFILES="$impacted_profiles"
   CONNECTIVITY_FINGERPRINT="$connectivity_fingerprint"
@@ -913,9 +916,6 @@ EOF
   PROVIDER_DIAGNOSIS_SUMMARY="$provider_diagnosis_summary"
   PROVIDER_PROFILE_COUNT="$provider_profile_count"
   PROVIDER_IMPACTED_COUNT="$provider_impacted_count"
-  PROVIDER_DOWN_COUNT="$provider_down_count"
-  PROVIDER_DEGRADED_COUNT="$provider_degraded_count"
-  PROVIDER_OK_COUNT="$provider_ok_count"
   PROVIDER_IMPACTED_GROUPS="$provider_impacted_groups"
   PROVIDER_IMPACTED_PROFILES="$provider_impacted_profiles"
   PROVIDER_FINGERPRINT="$provider_fingerprint"
@@ -1058,14 +1058,8 @@ select_probe_family() {
   PROBE_TOTAL_HTTP_BYTES="$TOTAL_HTTP_BYTES"
   PROBE_TOTAL_PING_PACKETS="$TOTAL_PING_PACKETS"
   PROBE_PACKET_PROBE_TARGET_COUNT="$PACKET_PROBE_TARGET_COUNT"
-  PROBE_RESOLVER_COUNT="$RESOLVER_COUNT"
-  PROBE_RESOLVER_IMPACTED="$RESOLVER_IMPACTED"
   PROBE_RESOLVER_PROVIDER_REPORTED="$RESOLVER_PROVIDER_REPORTED"
-  PROBE_WEB_COUNT="$WEB_COUNT"
-  PROBE_WEB_IMPACTED="$WEB_IMPACTED"
   PROBE_WEB_PROVIDER_REPORTED="$WEB_PROVIDER_REPORTED"
-  PROBE_AI_COUNT="$AI_COUNT"
-  PROBE_AI_IMPACTED="$AI_IMPACTED"
   PROBE_AI_PROVIDER_REPORTED="$AI_PROVIDER_REPORTED"
 
   case "$family" in
@@ -1079,14 +1073,10 @@ select_probe_family() {
       PROBE_DIAGNOSIS_SUMMARY="$PROVIDER_DIAGNOSIS_SUMMARY"
       PROBE_PROFILE_COUNT="$PROVIDER_PROFILE_COUNT"
       PROBE_IMPACTED_COUNT="$PROVIDER_IMPACTED_COUNT"
-      PROBE_DOWN_COUNT="$PROVIDER_DOWN_COUNT"
-      PROBE_DEGRADED_COUNT="$PROVIDER_DEGRADED_COUNT"
-      PROBE_OK_COUNT="$PROVIDER_OK_COUNT"
       PROBE_IMPACTED_GROUPS="$PROVIDER_IMPACTED_GROUPS"
       PROBE_IMPACTED_PROFILES="$PROVIDER_IMPACTED_PROFILES"
       PROBE_FINGERPRINT="$PROVIDER_FINGERPRINT"
       PROBE_PREVIOUS_SEVERITY="$PROVIDER_LAST_SEVERITY"
-      PROBE_PUBLICATION_REASON="$PROVIDER_DECISION_REASON"
       ;;
     *)
       PROBE_GROUP_COUNT="$CONNECTIVITY_GROUP_COUNT"
@@ -1098,14 +1088,10 @@ select_probe_family() {
       PROBE_DIAGNOSIS_SUMMARY="$CONNECTIVITY_DIAGNOSIS_SUMMARY"
       PROBE_PROFILE_COUNT="$CONNECTIVITY_PROFILE_COUNT"
       PROBE_IMPACTED_COUNT="$CONNECTIVITY_IMPACTED_COUNT"
-      PROBE_DOWN_COUNT="$CONNECTIVITY_DOWN_COUNT"
-      PROBE_DEGRADED_COUNT="$CONNECTIVITY_DEGRADED_COUNT"
-      PROBE_OK_COUNT="$CONNECTIVITY_OK_COUNT"
       PROBE_IMPACTED_GROUPS="$CONNECTIVITY_IMPACTED_GROUPS"
       PROBE_IMPACTED_PROFILES="$CONNECTIVITY_IMPACTED_PROFILES"
       PROBE_FINGERPRINT="$CONNECTIVITY_FINGERPRINT"
       PROBE_PREVIOUS_SEVERITY="$CONNECTIVITY_LAST_SEVERITY"
-      PROBE_PUBLICATION_REASON="$CONNECTIVITY_DECISION_REASON"
       ;;
   esac
 }
@@ -1239,7 +1225,7 @@ EOF
 build_profiles_json() {
   printf '['
   first=1
-  while IFS='|' read -r name label group severity target_host target_url dns_host packet_probe dns_latency http_latency http_status http_content_type http_response_bytes packet_loss packet_packets_sent packet_min packet_avg packet_max packet_jitter provider_indicator provider_description provider_severity dns_error http_error packet_error provider_affects; do
+  while IFS='|' read -r name label group severity target_host target_url dns_host packet_probe dns_latency http_latency http_status http_content_type http_response_bytes packet_loss packet_packets_sent packet_min packet_avg packet_max packet_jitter provider_indicator provider_description provider_severity dns_error http_error packet_error _provider_affects; do
     [ "$first" -eq 1 ] || printf ','
     first=0
     printf '{'
