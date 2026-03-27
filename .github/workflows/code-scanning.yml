@@ -1,0 +1,142 @@
+name: code-scanning
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          mkdir -p artifacts
+          mapfile -t files < <(git ls-files '*.sh')
+          if [ "${#files[@]}" -eq 0 ]; then
+            printf '[]\n' > artifacts/shellcheck.json
+            exit 0
+          fi
+
+          set +e
+          docker run --rm -v "$PWD:/work" -w /work koalaman/shellcheck-alpine:stable shellcheck -f json "${files[@]}" > artifacts/shellcheck.json
+          status=$?
+          set -e
+
+          if [ "$status" -gt 1 ]; then
+            exit "$status"
+          fi
+
+      - name: Convert ShellCheck findings to SARIF
+        run: |
+          jq -n --slurpfile findings artifacts/shellcheck.json '
+            def sarif_level($level):
+              if $level == "error" then "error"
+              elif $level == "warning" then "warning"
+              else "note"
+              end;
+
+            {
+              version: "2.1.0",
+              "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+              runs: [
+                {
+                  tool: {
+                    driver: {
+                      name: "ShellCheck",
+                      informationUri: "https://www.shellcheck.net/",
+                      rules: (
+                        $findings[0]
+                        | map({
+                            id: ("SC" + (.code | tostring)),
+                            name: ("SC" + (.code | tostring)),
+                            shortDescription: { text: .message },
+                            helpUri: ("https://www.shellcheck.net/wiki/SC" + (.code | tostring)),
+                            defaultConfiguration: { level: sarif_level(.level) }
+                          })
+                        | unique_by(.id)
+                      )
+                    }
+                  },
+                  results: (
+                    $findings[0]
+                    | map({
+                        ruleId: ("SC" + (.code | tostring)),
+                        level: sarif_level(.level),
+                        message: { text: .message },
+                        locations: [
+                          {
+                            physicalLocation: {
+                              artifactLocation: { uri: .file },
+                              region: {
+                                startLine: .line,
+                                startColumn: .column,
+                                endLine: (.endLine // .line),
+                                endColumn: (.endColumn // .column)
+                              }
+                            }
+                          }
+                        ]
+                      })
+                  )
+                }
+              ]
+            }
+          ' > artifacts/shellcheck.sarif
+
+      - name: Upload ShellCheck SARIF
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: artifacts/shellcheck.sarif
+          category: shellcheck
+
+  hadolint:
+    name: hadolint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint
+        run: |
+          mkdir -p artifacts
+
+          set +e
+          docker run --rm -v "$PWD:/work" -w /work ghcr.io/hadolint/hadolint hadolint -f sarif Dockerfile > artifacts/hadolint.sarif
+          status=$?
+          set -e
+
+          if [ "$status" -gt 1 ]; then
+            exit "$status"
+          fi
+
+          if [ ! -s artifacts/hadolint.sarif ]; then
+            printf '{"version":"2.1.0","runs":[]}\n' > artifacts/hadolint.sarif
+          fi
+
+      - name: Upload Hadolint SARIF
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: artifacts/hadolint.sarif
+          category: hadolint
