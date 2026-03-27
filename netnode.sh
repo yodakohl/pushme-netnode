@@ -2,7 +2,7 @@
 set -eu
 umask 077
 
-VERSION="${NETNODE_VERSION:-0.3.1}"
+VERSION="${NETNODE_VERSION:-0.3.2}"
 BASE_URL="${PUSHME_BOT_URL:-https://pushme.site}"
 STATE_FILE="${NETNODE_STATE_FILE:-./netnode-state.tsv}"
 ENV_FILE="${NETNODE_ENV_FILE:-./netnode.env}"

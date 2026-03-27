@@ -6,6 +6,15 @@ It keeps the same default probe set and one-minute cadence as the older
 Node-based implementation, but replaces the resident JavaScript runtime with a
 small shell-based loop plus short-lived probe tools.
 
+Published container targets:
+
+- `linux/amd64`
+- `linux/arm64`
+
+That means small x86 Linux hosts and Apple Silicon machines such as a Mac mini
+can run the published image through Docker or another Linux-container runtime.
+This repo does not target a native macOS process outside a container.
+
 ## Quick start
 
 Install the published container:
@@ -13,6 +22,10 @@ Install the published container:
 ```sh
 ./install.sh
 ```
+
+On an Apple Silicon Mac mini, use Docker Desktop, Colima, or another local
+Docker-compatible runtime. Once the multi-arch image is published, Docker will
+select the `linux/arm64` image automatically.
 
 Remove it:
 
@@ -152,6 +165,7 @@ through either:
 
 - default profiles are compiled into the script; custom profile JSON is not yet
   supported
-- targets small Linux hosts and Linux containers, not bare microcontrollers
+- targets small Linux hosts and Linux containers, including Apple Silicon Macs
+  running Linux containers, not bare microcontrollers
 - much smaller than the older Node runtime, but not claiming a hard 8 MB peak on
   every environment
