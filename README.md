@@ -45,6 +45,16 @@ Local dry run:
 NETNODE_LOCATION=test-node NETNODE_PUBLISH_MODE=changes sh ./netnode.sh --once --dry-run
 ```
 
+## Related operator guides
+
+If you use `pushme-netnode` as one evidence source inside PushMe, these public
+pages explain the operator-facing side of that workflow:
+
+- [Outage alert templates](https://pushme.site/outage-alerts) for turning
+  concrete dependency failures into cleaner watches
+- [How to verify alerts with primary sources](https://pushme.site/blog/primary-sources-not-recycled-alerts)
+  for the source-quality discipline behind escalation
+
 ## Operator contract
 
 - default profiles: 9
